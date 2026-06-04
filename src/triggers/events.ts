@@ -91,6 +91,17 @@ export function registerEventTriggers(sdk: ISdk, kv: StateKV): void {
   sdk.registerFunction(
     "event::session::ended",
     async (data: { sessionId: string }) => {
+      // Skip if the session was never started — otherwise state::update
+      // upserts a phantom row containing only the patch fields (no id,
+      // no project, no startedAt) which then breaks downstream consumers
+      // like the viewer dashboard.
+      const existing = await kv.get<Session>(KV.sessions, data.sessionId);
+      if (!existing) {
+        logger.warn("session::ended for unknown session — skipping", {
+          sessionId: data.sessionId,
+        });
+        return { success: false, reason: "unknown_session" };
+      }
       await kv.update(KV.sessions, data.sessionId, [
         { type: "set", path: "endedAt", value: new Date().toISOString() },
         { type: "set", path: "status", value: "completed" },

@@ -5,6 +5,7 @@ import type {
 } from "../types.js";
 import { AgentSDKProvider } from "./agent-sdk.js";
 import { AnthropicProvider } from "./anthropic.js";
+import { CloudflareProvider } from "./cloudflare.js";
 import { MinimaxProvider } from "./minimax.js";
 import { NoopProvider } from "./noop.js";
 import { OpenAIProvider } from "./openai.js";
@@ -36,6 +37,8 @@ function defaultModelFor(providerType: ProviderConfig["provider"]): string {
   switch (providerType) {
     case "openai":
       return getEnvVar("OPENAI_MODEL") || "gpt-4o-mini";
+    case "cloudflare":
+      return getEnvVar("CLOUDFLARE_MODEL") || "@cf/meta/llama-3.1-8b-instruct";
     case "anthropic":
       return getEnvVar("ANTHROPIC_MODEL") || "claude-sonnet-4-20250514";
     case "gemini":
@@ -97,6 +100,12 @@ function createBaseProvider(config: ProviderConfig): MemoryProvider {
     case "minimax":
       return new MinimaxProvider(
         requireEnvVar("MINIMAX_API_KEY"),
+        config.model,
+        config.maxTokens,
+      );
+    case "cloudflare":
+      return new CloudflareProvider(
+        requireEnvVar("CLOUDFLARE_API_TOKEN"),
         config.model,
         config.maxTokens,
       );

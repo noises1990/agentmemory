@@ -11,9 +11,9 @@ import { loadClaudeBridgeConfig } from "../src/config.js";
 describe("loadClaudeBridgeConfig path (#625)", () => {
   const ORIG_ENV = { ...process.env };
   beforeEach(() => {
-    delete process.env["CLAUDE_MEMORY_BRIDGE"];
-    delete process.env["CLAUDE_PROJECT_PATH"];
-    delete process.env["CLAUDE_MEMORY_LINE_BUDGET"];
+    process.env["CLAUDE_MEMORY_BRIDGE"] = "";
+    process.env["CLAUDE_PROJECT_PATH"] = "";
+    process.env["CLAUDE_MEMORY_LINE_BUDGET"] = "";
   });
   afterEach(() => {
     process.env = { ...ORIG_ENV };

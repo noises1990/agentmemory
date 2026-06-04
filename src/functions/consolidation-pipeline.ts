@@ -15,7 +15,13 @@ import {
   buildProceduralExtractionPrompt,
 } from "../prompts/consolidation.js";
 import { recordAudit } from "./audit.js";
-import { getConsolidationDecayDays, isConsolidationEnabled } from "../config.js";
+import {
+  getConsolidationDecayDays,
+  getConsolidationMinPatternFrequency,
+  getConsolidationMinPatterns,
+  getConsolidationMinSummaries,
+  isConsolidationEnabled,
+} from "../config.js";
 import { logger } from "../logger.js";
 
 function applyDecay(
@@ -56,11 +62,15 @@ export function registerConsolidationPipelineFunction(
       const decayDays = getConsolidationDecayDays();
       const results: Record<string, unknown> = {};
 
+      const minSummaries = getConsolidationMinSummaries();
+      const minPatternFreq = getConsolidationMinPatternFrequency();
+      const minPatterns = getConsolidationMinPatterns();
+
       if (tier === "all" || tier === "semantic") {
         const summaries = await kv.list<SessionSummary>(KV.summaries);
         const existingSemantic = await kv.list<SemanticMemory>(KV.semantic);
 
-        if (summaries.length >= 5) {
+        if (summaries.length >= minSummaries) {
           const recentSummaries = summaries
             .sort(
               (a, b) =>
@@ -128,7 +138,7 @@ export function registerConsolidationPipelineFunction(
         } else {
           results.semantic = {
             skipped: true,
-            reason: "fewer than 5 summaries",
+            reason: `fewer than ${minSummaries} summaries`,
           };
         }
       }
@@ -155,9 +165,9 @@ export function registerConsolidationPipelineFunction(
             content: m.content,
             frequency: m.sessionIds.length || 1,
           }))
-          .filter((p) => p.frequency >= 2);
+          .filter((p) => p.frequency >= minPatternFreq);
 
-        if (patterns.length >= 2) {
+        if (patterns.length >= minPatterns) {
           const prompt = buildProceduralExtractionPrompt(patterns);
 
           try {
@@ -223,7 +233,7 @@ export function registerConsolidationPipelineFunction(
         } else {
           results.procedural = {
             skipped: true,
-            reason: "fewer than 2 recurring patterns",
+            reason: `fewer than ${minPatterns} recurring patterns`,
           };
         }
       }

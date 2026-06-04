@@ -7,6 +7,8 @@ import {
 import { readFileSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Duplex } from "node:stream";
+import { WebSocket, WebSocketServer } from "ws";
 import { renderViewerDocument } from "./document.js";
 import { timingSafeCompare } from "../auth.js";
 
@@ -199,12 +201,14 @@ export function startViewerServer(
   _sdk: unknown,
   secret?: string,
   restPort?: number,
+  streamsPort?: number,
 ): Server {
   // Reset exported runtime state for each start attempt.
   boundViewerPort = null;
   viewerSkipped = false;
 
   const resolvedRestPort = restPort ?? port - 2;
+  const resolvedStreamsPort = streamsPort ?? resolvedRestPort + 1;
   const requestedPort = port;
   const host = resolveViewerHost();
   let inboundSecret: string | null = null;
@@ -316,6 +320,30 @@ export function startViewerServer(
       console.error(`[viewer] proxy error on ${method} ${pathname}:`, err);
       json(res, 502, { error: "upstream error" }, req);
     }
+  });
+
+  // WebSocket upgrade handler: bridge browser connections at
+  // /stream/{streamName}/{groupId} to the iii-sdk engine WS at port
+  // resolvedStreamsPort, sending the worker-protocol `join` message on
+  // the client's behalf so the browser doesn't need to speak that
+  // protocol directly.
+  const wss = new WebSocketServer({ noServer: true });
+  server.on("upgrade", (req: IncomingMessage, socket: Duplex, head: Buffer) => {
+    const raw = req.url || "/";
+    const qIdx = raw.indexOf("?");
+    const pathname = qIdx >= 0 ? raw.slice(0, qIdx) : raw;
+    const match = pathname.match(/^\/stream\/([^/]+)\/([^/]+)\/?$/);
+    if (!match) {
+      socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+      socket.destroy();
+      return;
+    }
+    const streamName = decodeURIComponent(match[1]);
+    const groupId = decodeURIComponent(match[2]);
+
+    wss.handleUpgrade(req, socket, head, (clientWs) => {
+      bridgeStreamWs(clientWs, resolvedStreamsPort, streamName, groupId);
+    });
   });
 
   let attempt = 0;
@@ -448,4 +476,78 @@ async function proxyToRestApi(
 
   res.writeHead(upstream.status, responseHeaders);
   res.end(responseBody);
+}
+
+function bridgeStreamWs(
+  clientWs: WebSocket,
+  streamsPort: number,
+  streamName: string,
+  groupId: string,
+): void {
+  const engineUrl = `ws://127.0.0.1:${streamsPort}/`;
+  let engineWs: WebSocket;
+  try {
+    engineWs = new WebSocket(engineUrl);
+  } catch (err) {
+    console.error(`[viewer] failed to open engine WS:`, err);
+    try { clientWs.close(1011, "engine_unreachable"); } catch {}
+    return;
+  }
+
+  const subscriptionId = `viewer-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const queued: Array<string | Buffer> = [];
+  let engineReady = false;
+
+  engineWs.on("open", () => {
+    engineReady = true;
+    try {
+      engineWs.send(JSON.stringify({
+        type: "join",
+        data: { subscriptionId, streamName, groupId },
+      }));
+    } catch (err) {
+      console.error(`[viewer] failed to send join:`, err);
+      try { clientWs.close(1011, "join_failed"); } catch {}
+      try { engineWs.close(); } catch {}
+      return;
+    }
+    while (queued.length > 0) {
+      const msg = queued.shift();
+      if (msg !== undefined) {
+        try { engineWs.send(msg); } catch {}
+      }
+    }
+  });
+
+  engineWs.on("message", (data: Buffer, isBinary: boolean) => {
+    if (clientWs.readyState !== WebSocket.OPEN) return;
+    try { clientWs.send(data, { binary: isBinary }); } catch {}
+  });
+
+  engineWs.on("close", (code, reason) => {
+    if (clientWs.readyState === WebSocket.OPEN || clientWs.readyState === WebSocket.CONNECTING) {
+      try { clientWs.close(code === 1006 ? 1011 : code, reason); } catch {}
+    }
+  });
+
+  engineWs.on("error", (err) => {
+    console.error(`[viewer] engine WS error:`, err.message);
+  });
+
+  clientWs.on("message", (data: Buffer, isBinary: boolean) => {
+    const payload = isBinary ? data : data.toString();
+    if (!engineReady) {
+      queued.push(payload);
+      return;
+    }
+    try { engineWs.send(payload); } catch {}
+  });
+
+  clientWs.on("close", () => {
+    try { engineWs.close(); } catch {}
+  });
+
+  clientWs.on("error", () => {
+    try { engineWs.close(); } catch {}
+  });
 }

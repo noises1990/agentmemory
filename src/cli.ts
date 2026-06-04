@@ -784,16 +784,32 @@ let startupFailure: StartupFailure | null = null;
 // window. The process is unref'd so the CLI parent can exit cleanly; we
 // only care about stderr that shows up BEFORE the health check succeeds,
 // which is what surfaces early crash/config-parse errors on all platforms.
+// iii-config.yaml's `iii-exec` block uses CWD-relative globs (`watch: src/**/*.ts`,
+// `exec: node dist/index.mjs`). When the engine inherits a CWD where those
+// don't resolve (e.g. launchd's $HOME), iii-exec silently never spawns the
+// worker and the engine sits with zero function handlers. Pick the directory
+// where both `src/` and `dist/index.mjs` resolve relative to the config file.
+function resolveEngineCwd(configPath: string): string | undefined {
+  const configDir = dirname(configPath);
+  const candidates = [configDir, join(configDir, "..")];
+  for (const c of candidates) {
+    if (existsSync(join(c, "dist", "index.mjs"))) return c;
+  }
+  return undefined;
+}
+
 function spawnEngineBackground(
   bin: string,
   spawnArgs: string[],
   label: string,
+  options: { cwd?: string } = {},
 ): ChildProcess {
-  vlog(`spawn: ${bin} ${spawnArgs.join(" ")}`);
+  vlog(`spawn: ${bin} ${spawnArgs.join(" ")}${options.cwd ? ` (cwd=${options.cwd})` : ""}`);
   const child = spawn(bin, spawnArgs, {
     detached: true,
     stdio: ["ignore", "ignore", "pipe"],
     windowsHide: true,
+    ...(options.cwd ? { cwd: options.cwd } : {}),
   });
   const isDocker = label.includes("Docker");
   if (!isDocker && typeof child.pid === "number") {
@@ -838,7 +854,9 @@ function startIiiBin(iiiBin: string, configPath: string): boolean {
   const s = p.spinner();
   s.start(`Starting iii-engine: ${iiiBin}`);
   writeEngineState({ kind: "native", configPath, binPath: iiiBin });
-  spawnEngineBackground(iiiBin, ["--config", configPath], "iii-engine");
+  spawnEngineBackground(iiiBin, ["--config", configPath], "iii-engine", {
+    cwd: resolveEngineCwd(configPath),
+  });
   s.stop("iii-engine process started");
   return true;
 }
@@ -1634,14 +1652,14 @@ async function passiveServerChecks(): Promise<DoctorCheck[]> {
     {
       name: "LLM provider",
       ok: hasLlm,
-      hint: hasLlm ? undefined : "set ANTHROPIC_API_KEY (or GEMINI/OPENROUTER/MINIMAX) in ~/.agentmemory/.env",
+      hint: hasLlm ? undefined : "set CLOUDFLARE_API_TOKEN (or ANTHROPIC/GEMINI/OPENROUTER/MINIMAX) in ~/.agentmemory/.env",
     },
     {
       name: "Embedding provider",
       ok: hasEmbed,
       hint: hasEmbed
         ? undefined
-        : "Running BM25-only. Add OPENAI_API_KEY / VOYAGE_API_KEY / COHERE_API_KEY / OLLAMA_HOST",
+        : "Running BM25-only. Add CLOUDFLARE_API_TOKEN / OPENAI_API_KEY / VOYAGE_API_KEY / COHERE_API_KEY / OLLAMA_HOST",
     },
   );
 

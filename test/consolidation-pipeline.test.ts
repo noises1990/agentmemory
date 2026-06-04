@@ -6,6 +6,9 @@ vi.mock("../src/logger.js", () => ({
 
 vi.mock("../src/config.js", () => ({
   getConsolidationDecayDays: () => 30,
+  getConsolidationMinPatternFrequency: () => 2,
+  getConsolidationMinPatterns: () => 2,
+  getConsolidationMinSummaries: () => 5,
   isConsolidationEnabled: vi.fn(() => true),
 }));
 

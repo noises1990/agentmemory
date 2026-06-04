@@ -607,6 +607,15 @@ export function registerApiTriggers(
           body: { error: "sessionId is required and must be a non-empty string" },
         };
       }
+      // Skip if the session was never started — state::update would
+      // otherwise create a phantom row with no id/project/startedAt.
+      const existing = await kv.get<Session>(KV.sessions, sessionId);
+      if (!existing) {
+        return {
+          status_code: 404,
+          body: { error: "unknown session", sessionId },
+        };
+      }
       await kv.update(KV.sessions, sessionId, [
         { type: "set", path: "endedAt", value: new Date().toISOString() },
         { type: "set", path: "status", value: "completed" },
@@ -792,7 +801,14 @@ export function registerApiTriggers(
     async (req: ApiRequest): Promise<Response> => {
       const authErr = checkAuth(req, secret);
       if (authErr) return authErr;
-      const sessions = await kv.list<Session>(KV.sessions);
+      const raw = await kv.list<Session>(KV.sessions);
+      // Drop malformed/orphan rows that lack the fields every consumer
+      // assumes are present. Older builds of event::session::ended could
+      // upsert phantom rows (only endedAt/status) when a session was
+      // never started — see triggers/events.ts.
+      const sessions = raw.filter(
+        (s) => s && typeof s.id === "string" && s.id.length > 0,
+      );
       const normalizedAgentId =
         typeof req.query_params?.["agentId"] === "string"
           ? req.query_params["agentId"].trim()
@@ -1446,7 +1462,7 @@ export function registerApiTriggers(
     config: { api_path: "/agentmemory/graph/stats", http_method: "GET" },
   });
 
-  sdk.registerFunction("api::graph-extract", 
+  sdk.registerFunction("api::graph-extract",
     async (req: ApiRequest<{ observations: unknown[] }>): Promise<Response> => {
       const authErr = checkAuth(req, secret);
       if (authErr) return authErr;

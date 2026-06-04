@@ -260,7 +260,7 @@ export function registerSummarizeFunction(
         return { success: false, error: "no_observations" };
       }
 
-      if (provider.name === "noop") {
+      if (provider.name === "noop" || provider.name === "resilient(noop)") {
         logger.info("Summarize skipped — no LLM provider configured", {
           sessionId,
         });
@@ -268,7 +268,7 @@ export function registerSummarizeFunction(
           success: false,
           error: "no_provider",
           reason:
-            "No LLM provider key set; Summarize is a no-op. Set ANTHROPIC_API_KEY (or GEMINI/OPENROUTER/MINIMAX) in ~/.agentmemory/.env to enable.",
+            "No LLM provider key set; Summarize is a no-op. Set CLOUDFLARE_API_TOKEN (or ANTHROPIC/GEMINI/OPENROUTER/MINIMAX) in ~/.agentmemory/.env to enable.",
         };
       }
 

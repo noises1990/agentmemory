@@ -60,6 +60,7 @@ const MCP_AGENTS: { value: string; label: string; glyph: string }[] = [
 ];
 
 const PROVIDERS: { value: string; label: string; envKey: string | null }[] = [
+  { value: "cloudflare", label: "Cloudflare Workers AI — @cf/*", envKey: "CLOUDFLARE_API_TOKEN" },
   { value: "anthropic", label: "Anthropic — claude", envKey: "ANTHROPIC_API_KEY" },
   { value: "openai", label: "OpenAI — gpt", envKey: "OPENAI_API_KEY" },
   { value: "gemini", label: "Google — gemini", envKey: "GEMINI_API_KEY" },
@@ -209,7 +210,7 @@ export async function runOnboarding(): Promise<OnboardingResult> {
   const providerPicked = await p.select<string>({
     message: "Which LLM provider should agentmemory use for compress/consolidate?",
     options: PROVIDERS.map(({ value, label }) => ({ value, label })),
-    initialValue: "anthropic",
+    initialValue: "cloudflare",
   });
   if (p.isCancel(providerPicked)) {
     p.cancel("Setup cancelled. Re-run any time with: agentmemory --reset");

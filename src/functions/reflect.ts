@@ -12,6 +12,7 @@ import type {
 } from "../types.js";
 import { recordAudit } from "./audit.js";
 import { REFLECT_SYSTEM, buildReflectPrompt } from "../prompts/reflect.js";
+import { getReflectMinClusterItems } from "../config.js";
 
 interface ConceptCluster {
   concepts: string[];
@@ -211,8 +212,10 @@ export function registerReflectFunctions(
         const conceptSet = new Set(conceptNames.map((c) => c.toLowerCase()));
 
         const clusterFacts = semanticMemories.filter((s) => {
-          const factTerms = s.fact.toLowerCase().split(/\s+/);
-          return factTerms.some((t) => conceptSet.has(t));
+          const factLower = s.fact.toLowerCase();
+          return conceptNames.some((c) =>
+            factLower.includes(c.toLowerCase()),
+          );
         });
 
         const clusterLessons = activeLessons.filter((l) =>
@@ -232,7 +235,7 @@ export function registerReflectFunctions(
 
         const totalItems =
           clusterFacts.length + clusterLessons.length + clusterCrystals.length;
-        if (totalItems < 3) {
+        if (totalItems < getReflectMinClusterItems()) {
           clustersSkipped++;
           continue;
         }
@@ -276,7 +279,18 @@ export function registerReflectFunctions(
 
             if (!content) continue;
 
-            const fp = fingerprintId("ins", content.trim().toLowerCase());
+            const clusterKey = [...conceptNames]
+              .map((c) => c.toLowerCase())
+              .sort()
+              .join("|");
+            const titleKey = title
+              .toLowerCase()
+              .replace(/[^a-z0-9 ]+/g, "")
+              .split(/\s+/)
+              .filter(Boolean)
+              .slice(0, 6)
+              .join(" ");
+            const fp = fingerprintId("ins", `${clusterKey}::${titleKey}`);
             const existing = await kv.get<Insight>(KV.insights, fp);
 
             if (existing && !existing.deleted) {
@@ -284,6 +298,35 @@ export function registerReflectFunctions(
               await kv.set(KV.insights, existing.id, existing);
               reinforced++;
             } else {
+              const liveForCluster = (
+                await kv.list<Insight>(KV.insights).catch(() => [])
+              ).filter(
+                (i) =>
+                  !i.deleted &&
+                  [...(i.sourceConceptCluster || [])]
+                    .map((c) => c.toLowerCase())
+                    .sort()
+                    .join("|") === clusterKey,
+              );
+
+              if (liveForCluster.length >= maxInsightsPerCluster) {
+                const weakest = liveForCluster
+                  .slice()
+                  .sort(
+                    (a, b) =>
+                      a.confidence * (a.reinforcements + 1) -
+                      b.confidence * (b.reinforcements + 1),
+                  )[0];
+                if (weakest && confidence > weakest.confidence) {
+                  reinforceInsight(weakest);
+                  await kv.set(KV.insights, weakest.id, weakest);
+                  reinforced++;
+                }
+                clusterCount++;
+                totalInsights++;
+                continue;
+              }
+
               const now = new Date().toISOString();
               const insight: Insight = {
                 id: fp,

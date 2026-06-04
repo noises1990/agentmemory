@@ -2,6 +2,7 @@ import { registerWorker } from "iii-sdk";
 import {
   loadConfig,
   getEnvVar,
+  seedProcessEnv,
   loadEmbeddingConfig,
   loadFallbackConfig,
   loadClaudeBridgeConfig,
@@ -158,6 +159,7 @@ process.on("unhandledRejection", (reason) => {
 });
 
 async function main() {
+  seedProcessEnv();
   const config = loadConfig();
   const embeddingConfig = loadEmbeddingConfig();
   const fallbackConfig = loadFallbackConfig();
@@ -531,6 +533,7 @@ async function main() {
     sdk,
     secret,
     config.restPort,
+    config.streamsPort,
   );
 
   const autoForgetIntervalMs = parseInt(process.env.AUTO_FORGET_INTERVAL_MS || "3600000", 10);

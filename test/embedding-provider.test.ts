@@ -9,15 +9,19 @@ import type { EmbeddingProvider } from "../src/types.js";
 
 describe("createEmbeddingProvider", () => {
   const originalEnv = { ...process.env };
+  const providerEnvKeys = [
+    "CLOUDFLARE_API_TOKEN",
+    "COHERE_API_KEY",
+    "EMBEDDING_PROVIDER",
+    "GEMINI_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENROUTER_API_KEY",
+    "VOYAGE_API_KEY",
+  ];
 
   beforeEach(() => {
     process.env = { ...originalEnv };
-    delete process.env["GEMINI_API_KEY"];
-    delete process.env["OPENAI_API_KEY"];
-    delete process.env["VOYAGE_API_KEY"];
-    delete process.env["COHERE_API_KEY"];
-    delete process.env["OPENROUTER_API_KEY"];
-    delete process.env["EMBEDDING_PROVIDER"];
+    for (const key of providerEnvKeys) process.env[key] = "";
   });
 
   afterEach(() => {
@@ -54,14 +58,19 @@ describe("createEmbeddingProvider", () => {
 
 describe("OpenAIEmbeddingProvider", () => {
   const originalEnv = { ...process.env };
+  const openAiEnvKeys = [
+    "CLOUDFLARE_API_TOKEN",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_EMBEDDING_BASE_URL",
+    "OPENAI_EMBEDDING_API_KEY",
+    "OPENAI_EMBEDDING_DIMENSIONS",
+    "OPENAI_EMBEDDING_MODEL",
+  ];
 
   beforeEach(() => {
     process.env = { ...originalEnv };
-    delete process.env["OPENAI_BASE_URL"];
-    delete process.env["OPENAI_EMBEDDING_BASE_URL"];
-    delete process.env["OPENAI_EMBEDDING_API_KEY"];
-    delete process.env["OPENAI_EMBEDDING_MODEL"];
-    delete process.env["OPENAI_EMBEDDING_DIMENSIONS"];
+    for (const key of openAiEnvKeys) process.env[key] = "";
   });
 
   afterEach(() => {
@@ -75,8 +84,8 @@ describe("OpenAIEmbeddingProvider", () => {
   });
 
   it("throws when no API key is provided", () => {
-    delete process.env["OPENAI_API_KEY"];
-    delete process.env["OPENAI_EMBEDDING_API_KEY"];
+    process.env["OPENAI_API_KEY"] = "";
+    process.env["OPENAI_EMBEDDING_API_KEY"] = "";
     expect(() => new OpenAIEmbeddingProvider()).toThrow(/API key is required.*OPENAI_EMBEDDING_API_KEY.*OPENAI_API_KEY/);
   });
 

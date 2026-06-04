@@ -45,6 +45,18 @@ function loadEnvFile(): Record<string, string> {
   return vars;
 }
 
+let _envSeeded = false;
+export function seedProcessEnv(): void {
+  if (_envSeeded) return;
+  _envSeeded = true;
+  const fileVars = loadEnvFile();
+  for (const [key, value] of Object.entries(fileVars)) {
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
+
 function hasRealValue(v: string | undefined): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
@@ -68,6 +80,15 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
       provider: "minimax",
       model: env["MINIMAX_MODEL"] || "MiniMax-M2.7",
       maxTokens,
+    };
+  }
+
+  if (hasRealValue(env["CLOUDFLARE_API_TOKEN"])) {
+    return {
+      provider: "cloudflare",
+      model: env["CLOUDFLARE_MODEL"] || "@cf/meta/llama-3.1-8b-instruct",
+      maxTokens,
+      baseURL: env["CLOUDFLARE_AI_BASE_URL"],
     };
   }
 
@@ -127,7 +148,7 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
   if (!allowAgentSdk) {
     process.stderr.write(
       "[agentmemory] No LLM provider key found " +
-        "(ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, MINIMAX_API_KEY, OPENAI_API_KEY). " +
+        "(OPENAI_API_KEY, CLOUDFLARE_API_TOKEN, ANTHROPIC_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, MINIMAX_API_KEY). " +
         "LLM-backed compression and summarization are DISABLED — using no-op provider. " +
         "This is the safe default: the agent-sdk fallback used to spawn Claude Agent SDK " +
         "child sessions which inherit Claude Code's plugin hooks and cause infinite Stop-hook " +
@@ -206,6 +227,7 @@ export function detectLlmProviderKind(): "llm" | "noop" {
   const env = getMergedEnv();
   if (
     hasRealValue(env["ANTHROPIC_API_KEY"]) ||
+    hasRealValue(env["CLOUDFLARE_API_TOKEN"]) ||
     hasRealValue(env["GEMINI_API_KEY"]) ||
     hasRealValue(env["GOOGLE_API_KEY"]) ||
     hasRealValue(env["OPENROUTER_API_KEY"]) ||
@@ -241,6 +263,7 @@ export function detectEmbeddingProvider(
   if (forced) return forced;
 
   if (source["GEMINI_API_KEY"]) return "gemini";
+  if (source["CLOUDFLARE_API_TOKEN"]) return "cloudflare";
   if (source["OPENAI_API_KEY"]) return "openai";
   if (source["VOYAGE_API_KEY"]) return "voyage";
   if (source["COHERE_API_KEY"]) return "cohere";
@@ -401,6 +424,40 @@ export function isContextInjectionEnabled(): boolean {
 
 export function getConsolidationDecayDays(): number {
   return safeParseInt(getMergedEnv()["CONSOLIDATION_DECAY_DAYS"], 30);
+}
+
+// Minimum number of session summaries required before the semantic
+// consolidation tier runs. The original hard-coded value was 5, which
+// assumes a workflow with many short sessions; for users who run one long
+// session per project (compacting often), 5 is never reached. Default 1
+// lets a single-session workload graduate facts; bump higher if you only
+// want cross-session merges.
+export function getConsolidationMinSummaries(): number {
+  return safeParseInt(getMergedEnv()["CONSOLIDATION_MIN_SUMMARIES"], 1);
+}
+
+// Per-pattern frequency floor (frequency = number of distinct sessions a
+// pattern appears in). Default 1 so patterns from a single session still
+// qualify; raise to 2+ to require cross-session corroboration.
+export function getConsolidationMinPatternFrequency(): number {
+  return safeParseInt(
+    getMergedEnv()["CONSOLIDATION_MIN_PATTERN_FREQUENCY"],
+    1,
+  );
+}
+
+// Minimum count of qualifying patterns before procedural extraction runs.
+// Default 1 (was hard-coded 2) so a single recurring pattern can graduate.
+export function getConsolidationMinPatterns(): number {
+  return safeParseInt(getMergedEnv()["CONSOLIDATION_MIN_PATTERNS"], 1);
+}
+
+// Minimum items (facts + lessons + crystals) a concept-graph cluster must
+// contain before reflect synthesises an insight. The original hard-coded
+// value was 3; default 2 lets sparser single-session graphs still produce
+// reflections. Raise back to 3+ if reflect output gets noisy.
+export function getReflectMinClusterItems(): number {
+  return safeParseInt(getMergedEnv()["REFLECT_MIN_CLUSTER_ITEMS"], 2);
 }
 
 export function isStandaloneMcp(): boolean {
