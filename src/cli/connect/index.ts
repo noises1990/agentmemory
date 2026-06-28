@@ -13,6 +13,7 @@ import { adapter as geminiCli } from "./gemini-cli.js";
 import { adapter as hermes } from "./hermes.js";
 import { adapter as kiro } from "./kiro.js";
 import { adapter as openclaw } from "./openclaw.js";
+import { adapter as opencode } from "./opencode.js";
 import { adapter as openhuman } from "./openhuman.js";
 import { adapter as pi } from "./pi.js";
 import { adapter as qwen } from "./qwen.js";
@@ -33,6 +34,7 @@ export const ADAPTERS: readonly ConnectAdapter[] = [
   continueDev,
   zed,
   droid,
+  opencode,
   openclaw,
   hermes,
   pi,
@@ -198,7 +200,7 @@ function summarize(
   );
   if (wiredAny) {
     p.log.info(
-      "Next: install agentmemory's 8 skills into the same agent(s) so they know when to call the tools:\n  npx skills add rohitg00/agentmemory -y",
+      "Next: install agentmemory's 15 skills into the same agent(s) so they know when to call the tools:\n  npx skills add rohitg00/agentmemory -y",
     );
   }
 
