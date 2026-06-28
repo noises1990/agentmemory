@@ -30,7 +30,7 @@ function isSdkChildContext(payload) {
 	return payload.entrypoint === "sdk-ts";
 }
 const INJECT_CONTEXT = process.env["AGENTMEMORY_INJECT_CONTEXT"] === "true";
-const REST_URL = process.env["AGENTMEMORY_URL"] || "http://localhost:3111";
+const REST_URL = process.env["AGENTMEMORY_URL"] || "http://localhost:18111";
 const SECRET = process.env["AGENTMEMORY_SECRET"] || "";
 const INJECT_TIMEOUT_MS = 1500;
 const REGISTER_TIMEOUT_MS = 800;

@@ -25,7 +25,7 @@
 npx @agentmemory/agentmemory
 ```
 
-The server starts on `http://localhost:3111`.
+The server starts on `http://localhost:18111`.
 
 ### 2. Configure the MCP server
 

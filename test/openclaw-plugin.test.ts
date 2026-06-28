@@ -19,7 +19,7 @@ function makeApi(overrides: Partial<FakeApi> = {}): FakeApi {
   return {
     registerMemoryCapability: vi.fn(),
     on: vi.fn(),
-    pluginConfig: { base_url: "http://localhost:3111" },
+    pluginConfig: { base_url: "http://localhost:18111" },
     logger: { warn: vi.fn() },
     ...overrides,
   };

@@ -143,7 +143,7 @@ Commands:
                      whatever pidfile+lsof report on the REST port (use when
                      the engine was started natively but state file is missing).
   mcp                Start standalone MCP shim — opt-in surface for MCP-only clients
-                     (Cursor, Gemini CLI, etc). REST always available at :3111.
+                     (Cursor, Gemini CLI, etc). REST always available at :18111.
   import-jsonl [p]   Import Claude Code JSONL transcripts (default: ~/.claude/projects)
                      --max-files <N> | --max-files=<N>: override scan cap (default 200, max 1000;
                      out-of-range is rejected; for trees >1000 files, batch by subdirectory)
@@ -154,15 +154,15 @@ Options:
   --reset            Wipe ~/.agentmemory/preferences.json and re-run onboarding
   --tools all|core   Tool visibility (default: all = 51 tools; core = 8 essentials)
   --no-engine        Skip auto-starting iii-engine
-  --port <N>         Override REST port (default: 3111). Streams (N+1), viewer
-                     (N+2), and iii engine (N+46023) auto-derive from N so a
-                     single flag relocates the whole quartet.
-  --instance <N>     Shortcut for --port (3111 + N*100) to run multiple
+  --port <N>         Override REST port (default: 18111). Streams (N+1) and
+                     viewer (N+2) auto-derive from N so a single flag relocates
+                     agentmemory's HTTP surfaces.
+  --instance <N>     Shortcut for --port (18111 + N*100) to run multiple
                      daemons side-by-side without env gymnastics.
-                     --instance 1 -> 3211/3212/3213/49234, etc. (max N=50)
+                     --instance 1 -> 18211/18212/18213, etc. (max N=50)
 
 Environment:
-  AGENTMEMORY_URL              Full REST base URL (e.g. http://localhost:3111).
+  AGENTMEMORY_URL              Full REST base URL (e.g. http://localhost:18111).
                                Honored by status, doctor, and MCP shim commands.
   AGENTMEMORY_USE_DOCKER=1     Prefer the bundled docker-compose path over the
                                native iii-engine binary on first run.
@@ -193,17 +193,17 @@ if (portIdx !== -1 && args[portIdx + 1]) {
   process.env["III_REST_PORT"] = args[portIdx + 1];
 }
 
-// `--instance N` picks a 100-port block off the 3111 base so multiple
+// `--instance N` picks a 100-port block off the 18111 base so multiple
 // agentmemory daemons can coexist on one host without env-var
-// gymnastics (#750). `--instance 0` keeps the canonical 3111/3112/3113/49134
-// quartet; `--instance 1` → 3211/3212/3213/49234; etc. REST acts as the
-// anchor — streams/viewer/engine derive from it via fixed offsets below
-// unless an env explicitly pins each one.
+// gymnastics (#750). `--instance 0` keeps the canonical 18111/18112/18113
+// ports; `--instance 1` → 18211/18212/18213; etc. REST acts as the
+// anchor — streams/viewer derive from it via fixed offsets below unless
+// an env explicitly pins each one.
 const instanceIdx = args.indexOf("--instance");
 if (instanceIdx !== -1 && args[instanceIdx + 1]) {
   const n = parseInt(args[instanceIdx + 1] || "", 10);
   if (Number.isFinite(n) && n >= 0 && n <= 50) {
-    const base = 3111 + n * 100;
+    const base = 18111 + n * 100;
     if (!process.env["III_REST_PORT"]) {
       process.env["III_REST_PORT"] = String(base);
     }
@@ -220,7 +220,7 @@ function getRestPort(): number {
       if (parsed) return parseInt(parsed, 10);
     } catch {}
   }
-  return parseInt(process.env["III_REST_PORT"] || "3111", 10) || 3111;
+  return parseInt(process.env["III_REST_PORT"] || "18111", 10) || 18111;
 }
 
 function getBaseUrl(): string {
@@ -263,7 +263,7 @@ function getViewerUrl(): string {
     const u = new URL(getBaseUrl());
     const vPort =
       parseInt(process.env["III_VIEWER_PORT"] || "", 10) ||
-      (parseInt(u.port || "3111", 10) || 3111) + 2;
+      (parseInt(u.port || "18111", 10) || 18111) + 2;
     return `${u.protocol}//${u.hostname}:${vPort}`;
   } catch {
     const vPort =
@@ -278,7 +278,7 @@ function getViewerUrl(): string {
 // engine docs use post-0.11) and `III_STREAMS_PORT` (the name our
 // own config.ts has used since 0.7) so a single source of truth in
 // either form lights up the ready panel. Falls back to REST+1 so
-// `--port 3211` auto-picks 3212 instead of colliding on 3112 (#750).
+// `--port 18211` auto-picks 18212 instead of colliding on 18112 (#750).
 function getStreamPort(): number {
   return (
     parseInt(process.env["III_STREAM_PORT"] || "", 10) ||
@@ -287,11 +287,10 @@ function getStreamPort(): number {
   );
 }
 
-// Bridge WebSocket port — the iii engine's internal worker bus.
-// Defaults derived from REST as REST+46023 so the canonical 3111
-// anchor yields 49134 and `--port 3211` auto-picks 49234 without a
-// second-instance collision (#750). Overridable via
-// `III_ENGINE_PORT` or the legacy `III_ENGINE_URL=ws://host:port`.
+// Bridge WebSocket port — the iii engine's internal worker bus. The installed
+// iii binary exposes this as the fixed trigger default 49134; keep our default
+// aligned with the daemon unless the operator explicitly configures a custom
+// engine URL/port in an environment where iii also honors that setting.
 function getEnginePort(): number {
   const explicit = parseInt(process.env["III_ENGINE_PORT"] || "", 10);
   if (explicit) return explicit;
@@ -302,7 +301,7 @@ function getEnginePort(): number {
       if (parsed) return parseInt(parsed, 10);
     } catch {}
   }
-  return getRestPort() + 46023;
+  return 49134;
 }
 
 async function isEngineRunning(): Promise<boolean> {
@@ -635,7 +634,7 @@ async function maybeOfferGlobalInstall(): Promise<void> {
 //   "missing"   — binary not found anywhere we look
 // We deliberately do NOT probe the console's HTTP port: the binary
 // being on disk is the signal we care about (it's not auto-started by
-// agentmemory and its default port 3113 collides with our viewer, so
+// agentmemory and its default port 18113 collides with our viewer, so
 // "is it listening?" is the wrong question at boot time).
 type IiiConsoleState =
   | { kind: "installed"; binPath: string }
@@ -1110,7 +1109,7 @@ function printReadyHint(consoleState: IiiConsoleState): void {
 
   const consoleLine =
     consoleState.kind === "installed"
-      ? // We can't safely probe iii-console's port (default 3113
+      ? // We can't safely probe iii-console's port (default 18113
         // collides with our viewer) so we surface the binary location
         // and let the user start it on a port of their choice. Use
         // the detected binary path so `(run: ...)` is executable as-
@@ -1205,7 +1204,6 @@ async function main() {
       }
     }
     adoptRunningEngine();
-    await import("./index.js");
     if (await waitForAgentmemoryReady(15000)) {
       const consoleState = await ensureIiiConsole();
       await maybeOfferGlobalInstall();
@@ -1278,7 +1276,6 @@ async function main() {
   }
 
   s.stop("iii-engine is ready");
-  await import("./index.js");
   if (await waitForAgentmemoryReady(15000)) {
     const consoleState = await ensureIiiConsole();
     await maybeOfferGlobalInstall();
@@ -2509,8 +2506,8 @@ async function runConnectCmd(): Promise<void> {
 async function runImportJsonl(): Promise<void> {
   // Long-form flags that take a value. Their value tokens must be
   // consumed alongside the flag so they don't leak into positional
-  // args (e.g. `--port 3112 import-jsonl` would otherwise turn
-  // 3112 into pathArg).
+  // args (e.g. `--port 18112 import-jsonl` would otherwise turn
+  // 18112 into pathArg).
   const VALUE_FLAGS = new Set(["--port", "--tools"]);
   let maxFiles: number | undefined;
   const tail = args.slice(1);

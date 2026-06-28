@@ -28,7 +28,7 @@
 
 ```text
 Install agentmemory for Hermes. Run `npx @agentmemory/agentmemory` in a
-separate terminal to start the memory server on localhost:3111. Then
+separate terminal to start the memory server on localhost:18111. Then
 add this to `~/.hermes/config.yaml` so Hermes can use agentmemory as
 an MCP server with all 43 memory tools:
 
@@ -41,9 +41,9 @@ memory:
   provider: agentmemory
 
 Verify it's working with
-`curl http://localhost:3111/agentmemory/health` — it should return
+`curl http://localhost:18111/agentmemory/health` — it should return
 {"status":"healthy"}. Open the real-time viewer at
-http://localhost:3113 to watch memories being captured live.
+http://localhost:18113 to watch memories being captured live.
 
 If I want deeper integration — pre-LLM context injection, turn-level
 capture, memory-write mirroring to MEMORY.md, and system prompt block
@@ -103,7 +103,7 @@ The plugin auto-detects the running server and hooks into the Hermes agent loop.
 
 | Variable | Default | Description |
 |---|---|---|
-| `AGENTMEMORY_URL` | `http://localhost:3111` | agentmemory server URL |
+| `AGENTMEMORY_URL` | `http://localhost:18111` | agentmemory server URL |
 | `AGENTMEMORY_SECRET` | (none) | Auth token for protected instances |
 | `AGENTMEMORY_REQUIRE_HTTPS` | (off) | When set to `1`, refuse to send the bearer token over plaintext HTTP to a non-loopback host. Sends only when `AGENTMEMORY_URL` is `https://...` or points at `localhost`/`127.0.0.1`/`::1`. With this off, the plugin warns once on stderr but still sends. |
 
@@ -115,7 +115,7 @@ The plugin reads `~/.agentmemory/.env` (or `$XDG_CONFIG_HOME/agentmemory/.env`) 
 - Hybrid search: BM25 + vector + knowledge graph
 - Memory versioning, decay, and auto-forget
 - Cross-agent: memories from Claude Code, Cursor, Gemini CLI all accessible
-- Real-time viewer at http://localhost:3113
+- Real-time viewer at http://localhost:18113
 
 ## How it works
 

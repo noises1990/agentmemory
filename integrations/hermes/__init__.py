@@ -49,7 +49,7 @@ except ImportError:
         def shutdown(self, **kwargs: Any) -> None: pass
 
 
-DEFAULT_BASE_URL = "http://localhost:3111"
+DEFAULT_BASE_URL = "http://localhost:18111"
 TIMEOUT = 5
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
 _plaintext_bearer_warned = False
@@ -66,7 +66,7 @@ _plaintext_bearer_warned = False
 # we never override anything the user explicitly set in the shell. The
 # preload is best-effort and silent on any failure (file absent,
 # unreadable, malformed) — the plugin falls back to its existing default
-# (http://localhost:3111) and Hermes status reflects that.
+# (http://localhost:18111) and Hermes status reflects that.
 def _preload_agentmemory_dotenv() -> None:
     candidates: list[Path] = []
     home = os.environ.get("HOME")
@@ -92,7 +92,7 @@ def _preload_agentmemory_dotenv() -> None:
             continue
     # Guarantee AGENTMEMORY_URL is set so `hermes memory status` never
     # reports it as Missing when a user runs agentmemory at the default
-    # localhost:3111 (or via systemd with the URL line commented out in
+    # localhost:18111 (or via systemd with the URL line commented out in
     # ~/.agentmemory/.env because it matches the default). #520.
     os.environ.setdefault("AGENTMEMORY_URL", DEFAULT_BASE_URL)
 

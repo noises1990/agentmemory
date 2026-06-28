@@ -130,7 +130,7 @@ async function seedEnvFile(provider: string | null): Promise<string | null> {
     // without forcing us to keep two copies in sync.
     const lines = [
       "# agentmemory environment — uncomment what you need",
-      "# AGENTMEMORY_URL=http://localhost:3111",
+      "# AGENTMEMORY_URL=http://localhost:18111",
       "",
     ];
     const envKey = PROVIDERS.find((x) => x.value === provider)?.envKey;
@@ -200,7 +200,7 @@ export async function runOnboarding(): Promise<OnboardingResult> {
     p.note(
       [
         "━ how this works ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
-        "All selected agents share the same memory at :3111.",
+        "All selected agents share the same memory at :18111.",
         "A memory saved by Claude Code is visible to Copilot + Codex + Cursor instantly.",
         "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
       ].join("\n"),

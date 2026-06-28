@@ -19,8 +19,8 @@ import {
 
 function stubCtx(overrides: Partial<DoctorContext> = {}): DoctorContext {
   return {
-    baseUrl: "http://localhost:3111",
-    viewerUrl: "http://localhost:3113",
+    baseUrl: "http://localhost:18111",
+    viewerUrl: "http://localhost:18113",
     envPath: "/tmp/test/.agentmemory/.env",
     pidfilePath: "/tmp/test/.agentmemory/iii.pid",
     enginePath: "/tmp/test/.agentmemory/engine-state.json",

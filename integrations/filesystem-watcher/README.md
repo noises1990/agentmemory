@@ -24,7 +24,7 @@ agentmemory-fs-watcher ~/work/my-repo ~/notes
 
 # Or set env once in your shell.
 export AGENTMEMORY_FS_WATCH_DIRS=~/work/my-repo,~/notes
-export AGENTMEMORY_URL=http://localhost:3111
+export AGENTMEMORY_URL=http://localhost:18111
 export AGENTMEMORY_SECRET=...   # only if the server requires auth
 agentmemory-fs-watcher
 ```
@@ -42,7 +42,7 @@ Requires Node.js **>=20 LTS**. Recursive `fs.watch` needs Node 19.1.0+ on Linux;
 | `AGENTMEMORY_FS_WATCH_DIRS` | — | Comma-separated list of directories to watch |
 | `AGENTMEMORY_FS_WATCH_IGNORE` | — | Comma-separated regex patterns to ignore (applied to relative paths) |
 | `AGENTMEMORY_FS_WATCH_ALLOW_BINARY` | `0` | `1` to include binary files in the preview read |
-| `AGENTMEMORY_URL` | `http://localhost:3111` | agentmemory server URL |
+| `AGENTMEMORY_URL` | `http://localhost:18111` | agentmemory server URL |
 | `AGENTMEMORY_SECRET` | — | Bearer token, required if the server has `AGENTMEMORY_SECRET` set |
 | `AGENTMEMORY_PROJECT` | — | Optional project label attached to each observation |
 | `AGENTMEMORY_SESSION_ID` | — | Optional session id to attribute observations to |

@@ -28,9 +28,9 @@ export type DiagnosticFixResult = {
 };
 
 export type DoctorContext = {
-  /** Base URL for the running engine, e.g. http://localhost:3111 */
+  /** Base URL for the running engine, e.g. http://localhost:18111 */
   baseUrl: string;
-  /** Viewer URL, e.g. http://localhost:3113 */
+  /** Viewer URL, e.g. http://localhost:18113 */
   viewerUrl: string;
   /** Path to ~/.agentmemory/.env */
   envPath: string;
@@ -246,7 +246,7 @@ export function buildDiagnostics(effects: DoctorEffects): Diagnostic[] {
       message: "Viewer port not reachable.",
       fixPreview: "Stop the engine, restart it, and retry the viewer probe.",
       moreInfo:
-        "The viewer is served on REST port + 2 (default 3113). If it never came up " +
+        "The viewer is served on REST port + 2 (default 18113). If it never came up " +
         "the most common cause is port collision; a sibling PR ships auto-bump for " +
         "this case. If that lands first this check just verifies; otherwise restart " +
         "the engine to retry binding.",

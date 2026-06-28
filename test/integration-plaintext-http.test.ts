@@ -48,17 +48,17 @@ describe("OpenClaw plaintext bearer guard", () => {
   });
 
   it("keeps loopback HTTP silent", async () => {
-    const { handlers, warn } = registerOpenClaw("http://localhost:3111");
+    const { handlers, warn } = registerOpenClaw("http://localhost:18111");
     await handlers.get("before_agent_start")?.({ prompt: "recall auth work" });
     expect(warn).not.toHaveBeenCalled();
   });
 
   it("warns once for non-loopback HTTP with a bearer secret", async () => {
-    const { handlers, warn } = registerOpenClaw("http://remote.example:3111");
+    const { handlers, warn } = registerOpenClaw("http://remote.example:18111");
     await handlers.get("before_agent_start")?.({ prompt: "first" });
     await handlers.get("before_agent_start")?.({ prompt: "second" });
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain("plaintext HTTP to http://remote.example:3111");
+    expect(warn.mock.calls[0][0]).toContain("plaintext HTTP to http://remote.example:18111");
   });
 
   it("keeps HTTPS with a bearer secret silent", async () => {
@@ -70,8 +70,8 @@ describe("OpenClaw plaintext bearer guard", () => {
   it("fails before any request when HTTPS is required", () => {
     process.env["AGENTMEMORY_REQUIRE_HTTPS"] = "1";
     const fetchMock = mockFetch();
-    expect(() => registerOpenClaw("http://remote.example:3111")).toThrow(
-      /plaintext HTTP to http:\/\/remote\.example:3111/,
+    expect(() => registerOpenClaw("http://remote.example:18111")).toThrow(
+      /plaintext HTTP to http:\/\/remote\.example:18111/,
     );
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -81,17 +81,17 @@ describe("pi plaintext bearer guard", () => {
   it("keeps loopback HTTP silent", () => {
     const warn = vi.fn();
     const guard = createPlaintextBearerAuthGuard(warn, {});
-    guard("http://127.0.0.1:3111", "secret");
+    guard("http://127.0.0.1:18111", "secret");
     expect(warn).not.toHaveBeenCalled();
   });
 
   it("warns once for non-loopback HTTP with a bearer secret", () => {
     const warn = vi.fn();
     const guard = createPlaintextBearerAuthGuard(warn, {});
-    guard("http://remote.example:3111", "secret");
-    guard("http://remote.example:3111", "secret");
+    guard("http://remote.example:18111", "secret");
+    guard("http://remote.example:18111", "secret");
     expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain("plaintext HTTP to http://remote.example:3111");
+    expect(warn.mock.calls[0][0]).toContain("plaintext HTTP to http://remote.example:18111");
   });
 
   it("keeps HTTPS with a bearer secret silent", () => {
@@ -106,8 +106,8 @@ describe("pi plaintext bearer guard", () => {
     const guard = createPlaintextBearerAuthGuard(warn, {
       AGENTMEMORY_REQUIRE_HTTPS: "1",
     });
-    expect(() => guard("http://remote.example:3111", "secret")).toThrow(
-      /plaintext HTTP to http:\/\/remote\.example:3111/,
+    expect(() => guard("http://remote.example:18111", "secret")).toThrow(
+      /plaintext HTTP to http:\/\/remote\.example:18111/,
     );
     expect(warn).not.toHaveBeenCalled();
   });
@@ -115,31 +115,31 @@ describe("pi plaintext bearer guard", () => {
   it("treats IPv6 loopback ([::1]) as loopback (URL parser strips brackets)", () => {
     const warn = vi.fn();
     const guard = createPlaintextBearerAuthGuard(warn, {});
-    guard("http://[::1]:3111", "secret");
+    guard("http://[::1]:18111", "secret");
     expect(warn).not.toHaveBeenCalled();
   });
 
   it("warns for private LAN IPs — RFC1918 ranges are NOT loopback", () => {
     const warn = vi.fn();
     const guard = createPlaintextBearerAuthGuard(warn, {});
-    guard("http://192.168.1.50:3111", "secret");
-    guard("http://10.0.0.42:3111", "secret");
+    guard("http://192.168.1.50:18111", "secret");
+    guard("http://10.0.0.42:18111", "secret");
     expect(warn).toHaveBeenCalledTimes(1); // warn-once
-    expect(warn.mock.calls[0][0]).toContain("plaintext HTTP to http://192.168.1.50:3111");
+    expect(warn.mock.calls[0][0]).toContain("plaintext HTTP to http://192.168.1.50:18111");
   });
 
   it("does not warn when no secret is set — guard only fires when a bearer would actually be sent", () => {
     const warn = vi.fn();
     const guard = createPlaintextBearerAuthGuard(warn, {});
-    guard("http://remote.example:3111", "");
-    guard("http://remote.example:3111", undefined);
+    guard("http://remote.example:18111", "");
+    guard("http://remote.example:18111", undefined);
     expect(warn).not.toHaveBeenCalled();
   });
 
   it("treats hostnames that LOOK loopback but aren't (localhost.evil.com) as remote", () => {
     const warn = vi.fn();
     const guard = createPlaintextBearerAuthGuard(warn, {});
-    guard("http://localhost.evil.com:3111", "secret");
+    guard("http://localhost.evil.com:18111", "secret");
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });
@@ -171,14 +171,14 @@ for key in ("AGENTMEMORY_SECRET", "AGENTMEMORY_URL", "AGENTMEMORY_REQUIRE_HTTPS"
 
 warnings = []
 mod._reset_plaintext_bearer_guard_for_tests()
-mod._check_plaintext_bearer_guard("http://localhost:3111", "secret", warnings.append)
+mod._check_plaintext_bearer_guard("http://localhost:18111", "secret", warnings.append)
 assert warnings == [], warnings
 
 mod._reset_plaintext_bearer_guard_for_tests()
-mod._check_plaintext_bearer_guard("http://remote.example:3111", "secret", warnings.append)
-mod._check_plaintext_bearer_guard("http://remote.example:3111", "secret", warnings.append)
+mod._check_plaintext_bearer_guard("http://remote.example:18111", "secret", warnings.append)
+mod._check_plaintext_bearer_guard("http://remote.example:18111", "secret", warnings.append)
 assert len(warnings) == 1, warnings
-assert "plaintext HTTP to http://remote.example:3111" in warnings[0], warnings
+assert "plaintext HTTP to http://remote.example:18111" in warnings[0], warnings
 
 warnings = []
 mod._reset_plaintext_bearer_guard_for_tests()
@@ -193,9 +193,9 @@ def fake_urlopen(req, timeout=0):
 mod.urlopen = fake_urlopen
 os.environ["AGENTMEMORY_REQUIRE_HTTPS"] = "1"
 try:
-    mod._api("http://remote.example:3111", "health", method="GET", secret="secret")
+    mod._api("http://remote.example:18111", "health", method="GET", secret="secret")
 except RuntimeError as exc:
-    assert "plaintext HTTP to http://remote.example:3111" in str(exc), exc
+    assert "plaintext HTTP to http://remote.example:18111" in str(exc), exc
 else:
     raise AssertionError("expected RuntimeError")
 assert calls == [], calls

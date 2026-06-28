@@ -56,75 +56,75 @@ describe("viewer document security", () => {
 
 describe("viewer host allowlist (DNS rebinding defence)", () => {
   const DEFAULT_ORIGINS = [
-    "http://localhost:3111",
-    "http://localhost:3113",
-    "http://127.0.0.1:3111",
-    "http://127.0.0.1:3113",
+    "http://localhost:18111",
+    "http://localhost:18113",
+    "http://127.0.0.1:18111",
+    "http://127.0.0.1:18113",
   ];
 
   it("accepts loopback host:port combinations the viewer is reachable at", () => {
-    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 3113);
-    expect(isHostAllowed("localhost:3113", allowed)).toBe(true);
-    expect(isHostAllowed("127.0.0.1:3113", allowed)).toBe(true);
-    expect(isHostAllowed("[::1]:3113", allowed)).toBe(true);
+    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 18113);
+    expect(isHostAllowed("localhost:18113", allowed)).toBe(true);
+    expect(isHostAllowed("127.0.0.1:18113", allowed)).toBe(true);
+    expect(isHostAllowed("[::1]:18113", allowed)).toBe(true);
   });
 
   it("includes the rest-port host so the same origin list works for the REST server", () => {
-    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 3113);
-    expect(isHostAllowed("localhost:3111", allowed)).toBe(true);
-    expect(isHostAllowed("127.0.0.1:3111", allowed)).toBe(true);
+    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 18113);
+    expect(isHostAllowed("localhost:18111", allowed)).toBe(true);
+    expect(isHostAllowed("127.0.0.1:18111", allowed)).toBe(true);
   });
 
   it("rejects rebound attacker hostnames pointing at loopback", () => {
-    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 3113);
+    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 18113);
     // Classic DNS-rebinding payload: attacker domain on the viewer port.
-    expect(isHostAllowed("attacker.com:3113", allowed)).toBe(false);
-    expect(isHostAllowed("evil.example:3113", allowed)).toBe(false);
+    expect(isHostAllowed("attacker.com:18113", allowed)).toBe(false);
+    expect(isHostAllowed("evil.example:18113", allowed)).toBe(false);
     // 0.0.0.0 is a routable loopback alias on Linux but not what the
     // viewer prints; reject so an attacker can't substitute it.
-    expect(isHostAllowed("0.0.0.0:3113", allowed)).toBe(false);
+    expect(isHostAllowed("0.0.0.0:18113", allowed)).toBe(false);
   });
 
   it("rejects bare loopback Host headers without the listening port", () => {
-    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 3113);
-    // Curl-style `Host: localhost` (no port) does NOT match `localhost:3113`.
+    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 18113);
+    // Curl-style `Host: localhost` (no port) does NOT match `localhost:18113`.
     expect(isHostAllowed("localhost", allowed)).toBe(false);
     expect(isHostAllowed("127.0.0.1", allowed)).toBe(false);
   });
 
   it("rejects missing, empty, or non-string Host headers", () => {
-    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 3113);
+    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 18113);
     expect(isHostAllowed(undefined, allowed)).toBe(false);
     expect(isHostAllowed("", allowed)).toBe(false);
     expect(isHostAllowed("   ", allowed)).toBe(false);
     // Node sets `host` to a string array only in very unusual setups;
     // treat anything non-string as forbidden.
-    expect(isHostAllowed(["localhost:3113"] as unknown as string, allowed))
+    expect(isHostAllowed(["localhost:18113"] as unknown as string, allowed))
       .toBe(false);
   });
 
   it("is case-insensitive on hostname per RFC 3986 §3.2.2", () => {
-    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 3113);
-    expect(isHostAllowed("LOCALHOST:3113", allowed)).toBe(true);
-    expect(isHostAllowed("LocalHost:3113", allowed)).toBe(true);
+    const allowed = buildAllowedHosts(DEFAULT_ORIGINS, 18113);
+    expect(isHostAllowed("LOCALHOST:18113", allowed)).toBe(true);
+    expect(isHostAllowed("LocalHost:18113", allowed)).toBe(true);
   });
 
   it("honours operator-supplied VIEWER_ALLOWED_ORIGINS on the host check", () => {
     const custom = buildAllowedHosts(
-      ["http://memory.internal:8080", "http://localhost:3113"],
-      3113,
+      ["http://memory.internal:8080", "http://localhost:18113"],
+      18113,
     );
     expect(isHostAllowed("memory.internal:8080", custom)).toBe(true);
     expect(isHostAllowed("memory.internal", custom)).toBe(false);
-    expect(isHostAllowed("attacker.com:3113", custom)).toBe(false);
+    expect(isHostAllowed("attacker.com:18113", custom)).toBe(false);
   });
 
   it("ignores malformed origin entries instead of throwing", () => {
     const allowed = buildAllowedHosts(
-      ["not-a-url", "", "http://localhost:3113"],
-      3113,
+      ["not-a-url", "", "http://localhost:18113"],
+      18113,
     );
-    expect(isHostAllowed("localhost:3113", allowed)).toBe(true);
+    expect(isHostAllowed("localhost:18113", allowed)).toBe(true);
   });
 });
 

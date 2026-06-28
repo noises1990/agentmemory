@@ -168,7 +168,7 @@ function makeMemory(overrides: Partial<Memory> = {}): Memory {
 function makePeer(overrides: Partial<MeshPeer> = {}): MeshPeer {
   return {
     id: `peer_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
-    url: "http://localhost:3111",
+    url: "http://localhost:18111",
     name: "Test peer",
     status: "connected",
     sharedScopes: [],

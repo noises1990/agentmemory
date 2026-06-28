@@ -43,7 +43,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
   it("emits a post_tool_use observation with HookPayload shape on write", async () => {
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
     w.start();
@@ -52,7 +52,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
       await wait(1500);
       expect(captured.length).toBeGreaterThanOrEqual(1);
       const obs = captured[captured.length - 1];
-      expect(obs.url).toBe("http://localhost:3111/agentmemory/observe");
+      expect(obs.url).toBe("http://localhost:18111/agentmemory/observe");
       const body = obs.body as {
         hookType: string;
         sessionId: string;
@@ -81,7 +81,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     writeFileSync(join(root, "old.md"), "bye\n");
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
     w.start();
@@ -100,7 +100,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
   it("throws if no watched roots could be attached", () => {
     const w = new FilesystemWatcher({
       roots: ["/definitely/does/not/exist/xyz123"],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
     expect(() => w.start()).toThrow(/could not watch any of the configured roots/);
@@ -110,7 +110,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     mkdirSync(join(root, "node_modules"), { recursive: true });
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
     w.start();
@@ -129,7 +129,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
   it("attaches Bearer auth when a secret is configured", async () => {
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       secret: "shhh",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
@@ -156,7 +156,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     );
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
@@ -183,7 +183,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     );
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
@@ -200,7 +200,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     writeFileSync(join(root, "request.txt"), "Authorization: Bearer plaintext-token-value\n");
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
@@ -236,7 +236,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     );
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
@@ -267,7 +267,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     );
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
@@ -291,7 +291,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     );
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
@@ -315,7 +315,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
     );
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
@@ -331,7 +331,7 @@ describe("FilesystemWatcher", { retry: 2 }, () => {
   it("debounces rapid writes to a single observation", async () => {
     const w = new FilesystemWatcher({
       roots: [root],
-      baseUrl: "http://localhost:3111",
+      baseUrl: "http://localhost:18111",
       logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
     w.start();
@@ -357,12 +357,12 @@ describe("configFromEnv", () => {
     const cfg = configFromEnv({
       AGENTMEMORY_FS_WATCH_DIRS: " /a , /b ",
       AGENTMEMORY_FS_WATCH_IGNORE: "foo$, ^bar",
-      AGENTMEMORY_URL: "http://localhost:3111",
+      AGENTMEMORY_URL: "http://localhost:18111",
       AGENTMEMORY_SECRET: "tok",
       AGENTMEMORY_PROJECT: "demo",
     });
     expect(cfg.roots).toEqual(["/a", "/b"]);
-    expect(cfg.baseUrl).toBe("http://localhost:3111");
+    expect(cfg.baseUrl).toBe("http://localhost:18111");
     expect(cfg.secret).toBe("tok");
     expect(cfg.project).toBe("demo");
     expect(cfg.ignorePatterns).toHaveLength(2);

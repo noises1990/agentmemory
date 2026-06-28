@@ -26,7 +26,7 @@ command = "npx"
 args = ["-y", "@agentmemory/mcp"]
 
 [mcp_servers.agentmemory.env]
-AGENTMEMORY_URL = "http://localhost:3111"
+AGENTMEMORY_URL = "http://localhost:18111"
 `;
 
 const SECTION_HEADER = "[mcp_servers.agentmemory]";

@@ -37,7 +37,7 @@ const VIEWER_FAVICON: Buffer | null = loadViewerFavicon();
 
 const ALLOWED_ORIGINS = (
   process.env.VIEWER_ALLOWED_ORIGINS ||
-  "http://localhost:3111,http://localhost:3113,http://127.0.0.1:3111,http://127.0.0.1:3113"
+  "http://localhost:18111,http://localhost:18113,http://127.0.0.1:18111,http://127.0.0.1:18113"
 )
   .split(",")
   .map((o) => o.trim());
@@ -226,7 +226,7 @@ export function startViewerServer(
     }
     if (readAllowedHostsOverride().length === 0) {
       throw new ViewerConfigError(
-        `AGENTMEMORY_VIEWER_HOST=${host} requires VIEWER_ALLOWED_HOSTS because non-loopback viewer binds only trust explicit Host headers. To fix: set VIEWER_ALLOWED_HOSTS to a comma-separated list of trusted Host header values (e.g. "localhost:3113" for fly proxy), or unset AGENTMEMORY_VIEWER_HOST to keep the safe loopback bind.`,
+        `AGENTMEMORY_VIEWER_HOST=${host} requires VIEWER_ALLOWED_HOSTS because non-loopback viewer binds only trust explicit Host headers. To fix: set VIEWER_ALLOWED_HOSTS to a comma-separated list of trusted Host header values (e.g. "localhost:18113" for fly proxy), or unset AGENTMEMORY_VIEWER_HOST to keep the safe loopback bind.`,
       );
     }
     inboundSecret = secret;

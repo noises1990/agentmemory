@@ -119,7 +119,7 @@ function redactSensitivePreview(preview) {
 export class FilesystemWatcher {
   constructor(config = {}) {
     this.roots = (config.roots || []).map((r) => resolve(r));
-    this.baseUrl = (config.baseUrl || "http://localhost:3111").replace(/\/+$/, "");
+    this.baseUrl = (config.baseUrl || "http://localhost:18111").replace(/\/+$/, "");
     this.secret = config.secret;
     this.project =
       config.project ||

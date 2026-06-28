@@ -32,7 +32,7 @@ import {
 } from "../src/mcp/rest-proxy.js";
 import { writeFileSync } from "node:fs";
 
-// Issue #449: hard-coded fetch() against :3111 in the livez probe was racing
+// Issue #449: hard-coded fetch() against :18111 in the livez probe was racing
 // with vitest's mock setup, making this file the "10-11 pre-existing failures"
 // referenced in the last 5 release notes. Stub the probe with an instant
 // ok:false response so the shim takes the deterministic InMemoryKV fallback

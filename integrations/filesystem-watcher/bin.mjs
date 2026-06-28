@@ -17,7 +17,7 @@ if (!roots || roots.length === 0) {
 const watcher = new FilesystemWatcher({ ...envCfg, roots });
 watcher.start();
 process.stderr.write(
-  `[fs-watcher] emitting to ${envCfg.baseUrl || "http://localhost:3111"}\n`,
+  `[fs-watcher] emitting to ${envCfg.baseUrl || "http://localhost:18111"}\n`,
 );
 
 const shutdown = () => {

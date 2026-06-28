@@ -6,11 +6,11 @@
  * - recalls relevant memories before the agent starts (before_agent_start hook)
  * - captures completed conversation turns after the agent finishes (agent_end hook)
  *
- * Requires the agentmemory server on localhost:3111.
+ * Requires the agentmemory server on localhost:18111.
  * Start it with: npx @agentmemory/agentmemory
  */
 
-const DEFAULT_BASE_URL = "http://localhost:3111";
+const DEFAULT_BASE_URL = "http://localhost:18111";
 const DEFAULT_TIMEOUT_MS = 5000;
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 

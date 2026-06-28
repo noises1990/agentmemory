@@ -72,40 +72,40 @@ describe("buildAllowedHosts", () => {
   it("seeds loopback defaults and CORS origins when bind is loopback", () => {
     delete process.env.VIEWER_ALLOWED_HOSTS;
     const allowed = buildAllowedHosts(
-      ["http://localhost:3111", "http://127.0.0.1:3111"],
-      3113,
+      ["http://localhost:18111", "http://127.0.0.1:18111"],
+      18113,
       "127.0.0.1",
     );
-    expect(allowed.has("localhost:3113")).toBe(true);
-    expect(allowed.has("127.0.0.1:3113")).toBe(true);
-    expect(allowed.has("[::1]:3113")).toBe(true);
-    expect(allowed.has("localhost:3111")).toBe(true);
-    expect(allowed.has("127.0.0.1:3111")).toBe(true);
+    expect(allowed.has("localhost:18113")).toBe(true);
+    expect(allowed.has("127.0.0.1:18113")).toBe(true);
+    expect(allowed.has("[::1]:18113")).toBe(true);
+    expect(allowed.has("localhost:18111")).toBe(true);
+    expect(allowed.has("127.0.0.1:18111")).toBe(true);
   });
 
   it("drops loopback defaults when bind is non-loopback, leaving only VIEWER_ALLOWED_HOSTS", () => {
-    process.env.VIEWER_ALLOWED_HOSTS = "viewer.example.com,localhost:3113";
+    process.env.VIEWER_ALLOWED_HOSTS = "viewer.example.com,localhost:18113";
     const allowed = buildAllowedHosts(
-      ["http://localhost:3111", "http://127.0.0.1:3111"],
-      3113,
+      ["http://localhost:18111", "http://127.0.0.1:18111"],
+      18113,
       "::",
     );
     expect(allowed.has("viewer.example.com")).toBe(true);
-    expect(allowed.has("localhost:3113")).toBe(true); // came in via the override
+    expect(allowed.has("localhost:18113")).toBe(true); // came in via the override
     // Origin-derived loopback hostnames must not silently land in the
     // allowlist when bind is non-loopback — otherwise Host header
     // spoofing reopens the very gap the override is meant to close.
-    expect(allowed.has("localhost:3111")).toBe(false);
-    expect(allowed.has("127.0.0.1:3111")).toBe(false);
-    expect(allowed.has("127.0.0.1:3113")).toBe(false);
-    expect(allowed.has("[::1]:3113")).toBe(false);
+    expect(allowed.has("localhost:18111")).toBe(false);
+    expect(allowed.has("127.0.0.1:18111")).toBe(false);
+    expect(allowed.has("127.0.0.1:18113")).toBe(false);
+    expect(allowed.has("[::1]:18113")).toBe(false);
   });
 
   it("returns an empty set when bind is non-loopback and the override is empty", () => {
     delete process.env.VIEWER_ALLOWED_HOSTS;
     const allowed = buildAllowedHosts(
-      ["http://localhost:3111"],
-      3113,
+      ["http://localhost:18111"],
+      18113,
       "0.0.0.0",
     );
     expect(allowed.size).toBe(0);
@@ -284,7 +284,7 @@ describe("startViewerServer host binding", () => {
 
   it("logs non-loopback bind mode and inbound auth requirements", async () => {
     process.env.AGENTMEMORY_VIEWER_HOST = "0.0.0.0";
-    process.env.VIEWER_ALLOWED_HOSTS = "localhost:3113,[::1]:3113";
+    process.env.VIEWER_ALLOWED_HOSTS = "localhost:18113,[::1]:18113";
     server = startViewerServer(0, null, null, "test-secret-xyz");
     await waitForListening(server);
 
@@ -292,13 +292,13 @@ describe("startViewerServer host binding", () => {
       expect.stringContaining("bound to 0.0.0.0; inbound Bearer required"),
     );
     expect(logSpy).toHaveBeenCalledWith(
-      expect.stringContaining("allowed Host headers: localhost:3113, [::1]:3113"),
+      expect.stringContaining("allowed Host headers: localhost:18113, [::1]:18113"),
     );
   });
 
   it("does not retry EADDRINUSE when bind is non-loopback", async () => {
     process.env.AGENTMEMORY_VIEWER_HOST = "0.0.0.0";
-    process.env.VIEWER_ALLOWED_HOSTS = "localhost:3113";
+    process.env.VIEWER_ALLOWED_HOSTS = "localhost:18113";
 
     const blocker = createServer((_req, res) => res.end("busy"));
     await new Promise<void>((resolve) => blocker.listen(0, "0.0.0.0", resolve));

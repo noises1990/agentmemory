@@ -91,7 +91,7 @@
 npm install -g @agentmemory/agentmemory          # once — bare `agentmemory` on PATH
 # If you hit EACCES on macOS/Linux system Node installs, retry with:
 # sudo npm install -g @agentmemory/agentmemory
-agentmemory                                      # start the memory server on :3111
+agentmemory                                      # start the memory server on :18111
 agentmemory demo                                 # seed sample sessions + prove recall
 agentmemory connect claude-code                  # wire MCP into your agent (also: copilot-cli, codex, cursor, gemini-cli, ...)
 npx skills add rohitg00/agentmemory -y           # install 8 native skills so your agent knows when to use the tools
@@ -355,7 +355,7 @@ npx @agentmemory/agentmemory
 </tr>
 <tr>
 <td><strong>Real-time viewer</strong></td>
-<td>Yes (port 3113)</td>
+<td>Yes (port 18113)</td>
 <td>Cloud dashboard</td>
 <td>Cloud dashboard</td>
 <td>No</td>
@@ -387,7 +387,7 @@ npx @agentmemory/agentmemory demo
 
 `demo` seeds 3 realistic sessions (JWT auth, N+1 query fix, rate limiting) and runs semantic searches against them. You'll see it find "N+1 query fix" when you search "database performance optimization" — keyword matching can't do that.
 
-Open `http://localhost:3113` to watch the memory build live.
+Open `http://localhost:18113` to watch the memory build live.
 
 ### Recommended: install globally
 
@@ -444,7 +444,7 @@ Implementation details live in `src/cli.ts` (see `runUpgrade` around the `src/cl
 ### Claude Code (one block, paste it)
 
 ```text
-Install agentmemory: run `npx @agentmemory/agentmemory` in a separate terminal to start the memory server. Then run `/plugin marketplace add rohitg00/agentmemory` and `/plugin install agentmemory` — the plugin registers all 12 hooks, 8 skills, AND auto-wires the `@agentmemory/mcp` stdio server via its `.mcp.json`, so you get 53 MCP tools (memory_smart_search, memory_save, memory_sessions, memory_governance_delete, etc.) without any extra config step. Verify with `curl http://localhost:3111/agentmemory/health`. The real-time viewer is at http://localhost:3113.
+Install agentmemory: run `npx @agentmemory/agentmemory` in a separate terminal to start the memory server. Then run `/plugin marketplace add rohitg00/agentmemory` and `/plugin install agentmemory` — the plugin registers all 12 hooks, 8 skills, AND auto-wires the `@agentmemory/mcp` stdio server via its `.mcp.json`, so you get 53 MCP tools (memory_smart_search, memory_save, memory_sessions, memory_governance_delete, etc.) without any extra config step. Verify with `curl http://localhost:18111/agentmemory/health`. The real-time viewer is at http://localhost:18113.
 ```
 
 #### Claude Code without the plugin install (MCP-standalone path)
@@ -458,7 +458,7 @@ agentmemory connect claude-code --with-hooks
 ```
 
 This merges the same hook commands into `~/.claude/settings.json` with absolute paths resolved to the bundled `plugin/` directory of the currently installed `@agentmemory/agentmemory` package. Re-run the command after upgrading agentmemory to refresh the paths. User entries in the same file are preserved; only previous agentmemory entries are replaced. Using the `/plugin install` path remains the recommended approach.
-For remote or protected deployments, launch Claude Code with `AGENTMEMORY_URL` and `AGENTMEMORY_SECRET` set. The plugin passes both values through to its bundled MCP server; when `AGENTMEMORY_URL` is empty, the MCP shim uses `http://localhost:3111`.
+For remote or protected deployments, launch Claude Code with `AGENTMEMORY_URL` and `AGENTMEMORY_SECRET` set. The plugin passes both values through to its bundled MCP server; when `AGENTMEMORY_URL` is empty, the MCP shim uses `http://localhost:18111`.
 
 ### Codex CLI (Codex plugin platform)
 
@@ -507,7 +507,7 @@ copilot plugin install rohitg00/agentmemory:plugin
 <summary><b>OpenClaw (paste this prompt)</b></summary>
 
 ```text
-Install agentmemory for OpenClaw. Run `npx @agentmemory/agentmemory` in a separate terminal to start the memory server on localhost:3111. Then add this to my OpenClaw MCP config so agentmemory is available with all 53 memory tools:
+Install agentmemory for OpenClaw. Run `npx @agentmemory/agentmemory` in a separate terminal to start the memory server on localhost:18111. Then add this to my OpenClaw MCP config so agentmemory is available with all 53 memory tools:
 
 {
   "mcpServers": {
@@ -515,13 +515,13 @@ Install agentmemory for OpenClaw. Run `npx @agentmemory/agentmemory` in a separa
       "command": "npx",
       "args": ["-y", "@agentmemory/mcp"],
       "env": {
-        "AGENTMEMORY_URL": "http://localhost:3111"
+        "AGENTMEMORY_URL": "http://localhost:18111"
       }
     }
   }
 }
 
-Restart OpenClaw. Verify with `curl http://localhost:3111/agentmemory/health`. Open http://localhost:3113 for the real-time viewer. For deeper memory-slot integration, copy `integrations/openclaw` to `~/.openclaw/extensions/agentmemory` and enable `plugins.slots.memory = "agentmemory"` in `~/.openclaw/openclaw.json`.
+Restart OpenClaw. Verify with `curl http://localhost:18111/agentmemory/health`. Open http://localhost:18113 for the real-time viewer. For deeper memory-slot integration, copy `integrations/openclaw` to `~/.openclaw/extensions/agentmemory` and enable `plugins.slots.memory = "agentmemory"` in `~/.openclaw/openclaw.json`.
 ```
 
 Full guide: [`integrations/openclaw/`](integrations/openclaw/)
@@ -532,7 +532,7 @@ Full guide: [`integrations/openclaw/`](integrations/openclaw/)
 <summary><b>Hermes Agent (paste this prompt)</b></summary>
 
 ```text
-Install agentmemory for Hermes. Run `npx @agentmemory/agentmemory` in a separate terminal to start the memory server on localhost:3111. Then add this to ~/.hermes/config.yaml so Hermes can use agentmemory as an MCP server with all 53 memory tools:
+Install agentmemory for Hermes. Run `npx @agentmemory/agentmemory` in a separate terminal to start the memory server on localhost:18111. Then add this to ~/.hermes/config.yaml so Hermes can use agentmemory as an MCP server with all 53 memory tools:
 
 mcp_servers:
   agentmemory:
@@ -542,7 +542,7 @@ mcp_servers:
 memory:
   provider: agentmemory
 
-Verify with `curl http://localhost:3111/agentmemory/health`. Open http://localhost:3113 for the real-time viewer. For deeper 6-hook memory provider integration (pre-LLM context injection, turn capture, MEMORY.md mirroring, system prompt block), copy integrations/hermes from the agentmemory repo to ~/.hermes/plugins/agentmemory.
+Verify with `curl http://localhost:18111/agentmemory/health`. Open http://localhost:18113 for the real-time viewer. For deeper 6-hook memory provider integration (pre-LLM context injection, turn capture, MEMORY.md mirroring, system prompt block), copy integrations/hermes from the agentmemory repo to ~/.hermes/plugins/agentmemory.
 ```
 
 Full guide: [`integrations/hermes/`](integrations/hermes/)
@@ -585,7 +585,7 @@ The agentmemory entry is the **same MCP server block** across every host that us
 }
 ```
 
-**Merge this entry into the existing `mcpServers` object** in the host's config file — don't replace the file. If the file already has other servers, add `agentmemory` next to them as another key inside `mcpServers`. If `mcpServers` is missing entirely, paste the block inside `{ "mcpServers": { ... } }`. The `${VAR}` placeholders inherit `AGENTMEMORY_URL` / `AGENTMEMORY_SECRET` from the shell at MCP-server launch — unset vars pass empty strings and the shim falls back to `http://localhost:3111`. One wired entry covers both local and remote (k8s / reverse-proxied) deployments.
+**Merge this entry into the existing `mcpServers` object** in the host's config file — don't replace the file. If the file already has other servers, add `agentmemory` next to them as another key inside `mcpServers`. If `mcpServers` is missing entirely, paste the block inside `{ "mcpServers": { ... } }`. The `${VAR}` placeholders inherit `AGENTMEMORY_URL` / `AGENTMEMORY_SECRET` from the shell at MCP-server launch — unset vars pass empty strings and the shim falls back to `http://localhost:18111`. One wired entry covers both local and remote (k8s / reverse-proxied) deployments.
 
 | Agent | Config file | Notes |
 |---|---|---|
@@ -612,7 +612,7 @@ The agentmemory entry is the **same MCP server block** across every host that us
 | **Zed** | `~/.config/zed/settings.json` | `agentmemory connect zed` writes under `context_servers` (Zed's key, NOT `mcpServers`). Remote MCP servers can be wired via `{"url": "..."}` instead. |
 | **Droid (Factory.ai)** | `~/.factory/mcp.json` | `agentmemory connect droid` writes the standard `mcpServers` block. Project-scoped overrides go in `<repo>/.factory/mcp.json`. The `/mcp` slash command inside droid lists configured servers. |
 | **Goose** | Goose MCP settings UI | Same `mcpServers` block — use `goose configure` → Add Extension → MCP. Direct YAML edit at `~/.config/goose/config.yaml` is supported but the schema uses `extensions:` + `cmd` (not `mcpServers:` + `command`). |
-| **Aider** | n/a | Talk to the REST API directly: `curl -X POST http://localhost:3111/agentmemory/smart-search -d '{"query": "auth"}'`. |
+| **Aider** | n/a | Talk to the REST API directly: `curl -X POST http://localhost:18111/agentmemory/smart-search -d '{"query": "auth"}'`. |
 | **Any agent (32+)** | n/a | `npx skillkit install agentmemory` auto-detects the host and merges. |
 
 **Sandboxed MCP clients** (Flatpak / Snap / restrictive containers) that can't reach the host's `localhost`: also set `"AGENTMEMORY_FORCE_PROXY": "1"` in the `env` block, and point `AGENTMEMORY_URL` at a route the sandbox can actually reach (e.g. your LAN IP). See [#234](https://github.com/rohitg00/agentmemory/issues/234) for the diagnostic walkthrough.
@@ -639,7 +639,7 @@ iii.trigger({
 })
 ```
 
-Worked example: [`examples/python/`](examples/python/) (quickstart + observation/recall flow). REST on `:3111` remains available for hosts without an iii runtime.
+Worked example: [`examples/python/`](examples/python/) (quickstart + observation/recall flow). REST on `:18111` remains available for hosts without an iii runtime.
 
 ### From source
 
@@ -706,7 +706,7 @@ npx -y @agentmemory/mcp
 |---|---|
 | `iii-engine process started` then `did not become ready within 15s` | Engine crashed on startup — re-run with `--verbose`, check stderr |
 | `Could not start iii-engine` | Neither `iii.exe` nor Docker is installed. See Option A or B above |
-| Port conflict | `netstat -ano \| findstr :3111` to see what's bound, then kill it or use `--port <N>` |
+| Port conflict | `netstat -ano \| findstr :18111` to see what's bound, then kill it or use `--port <N>` |
 | Docker fallback skipped even though Docker is installed | Make sure Docker Desktop is actually running (system tray icon) |
 
 > Note: there is no `cargo install iii-engine` — `iii` is not published to crates.io. The only supported install methods are the prebuilt binary above, the upstream `sh` install script (macOS/Linux only), and the Docker image.
@@ -745,7 +745,7 @@ cost floors) live in [`deploy/`](./deploy/README.md):
   own VPS via [Coolify](https://coolify.io/self-hosted); same Docker
   Compose stack, you own the host and the data.
 
-Only port `3111` is published. The viewer on `3113` stays bound to
+Only port `18111` is published. The viewer on `18113` stays bound to
 loopback inside the container — every template's README documents the
 SSH-tunnel pattern for reaching it.
 
@@ -780,7 +780,7 @@ Every AI coding agent ships with built-in memory — Claude Code has `MEMORY.md`
 | Token cost | 22K+ at 240 observations | ~1,900 tokens (92% less) |
 | Cross-agent | Per-agent files | MCP + REST (any agent) |
 | Coordination | None | Leases, signals, actions, routines |
-| Observability | Read files manually | Real-time viewer on :3113 |
+| Observability | Read files manually | Real-time viewer on :18113 |
 
 ---
 
@@ -891,7 +891,7 @@ npm install @xenova/transformers
 
 53 tools, 6 resources, 3 prompts, and 8 skills — the most comprehensive MCP memory toolkit for any agent.
 
-> **MCP shim vs full server:** the published `@agentmemory/mcp` package is a thin shim. It exposes the full 53-tool surface **only when it can reach a running agentmemory server** via `AGENTMEMORY_URL` (proxy mode). With no server reachable, the shim falls back to a 7-tool local set (`memory_save`, `memory_recall`, `memory_smart_search`, `memory_sessions`, `memory_export`, `memory_audit`, `memory_governance_delete`). The `AGENTMEMORY_TOOLS=core|all` env var is a *server-side* flag — setting it in the shim's `env` block has no effect. If you see only 7 tools in Cursor / OpenCode / Gemini CLI, start `npx @agentmemory/agentmemory` (or the Docker stack) and set `AGENTMEMORY_URL=http://localhost:3111`.
+> **MCP shim vs full server:** the published `@agentmemory/mcp` package is a thin shim. It exposes the full 53-tool surface **only when it can reach a running agentmemory server** via `AGENTMEMORY_URL` (proxy mode). With no server reachable, the shim falls back to a 7-tool local set (`memory_save`, `memory_recall`, `memory_smart_search`, `memory_sessions`, `memory_export`, `memory_audit`, `memory_governance_delete`). The `AGENTMEMORY_TOOLS=core|all` env var is a *server-side* flag — setting it in the shim's `env` block has no effect. If you see only 7 tools in Cursor / OpenCode / Gemini CLI, start `npx @agentmemory/agentmemory` (or the Docker stack) and set `AGENTMEMORY_URL=http://localhost:18111`.
 
 ### 53 Tools
 
@@ -988,7 +988,7 @@ Most agents (Cursor, Claude Desktop, Cline, Roo Code, Windsurf, Gemini CLI):
       "command": "npx",
       "args": ["-y", "@agentmemory/mcp"],
       "env": {
-        "AGENTMEMORY_URL": "http://localhost:3111"
+        "AGENTMEMORY_URL": "http://localhost:18111"
       }
     }
   }
@@ -1022,10 +1022,10 @@ cp plugin/opencode/commands/*.md ~/.config/opencode/commands/
 
 <h2 id="real-time-viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-viewer.svg"><img src="assets/tags/section-viewer.svg" alt="Real-Time Viewer" height="32" /></picture></h2>
 
-Auto-starts on port `3113`. Live observation stream, session explorer, memory browser, knowledge graph visualization, and health dashboard.
+Auto-starts on port `18113`. Live observation stream, session explorer, memory browser, knowledge graph visualization, and health dashboard.
 
 ```bash
-open http://localhost:3113
+open http://localhost:18113
 ```
 
 The viewer server binds to `127.0.0.1` by default. The REST-served `/agentmemory/viewer` endpoint follows the normal `AGENTMEMORY_SECRET` bearer-token rules. CSP headers use a per-response script nonce and disable inline handler attributes (`script-src-attr 'none'`).
@@ -1034,7 +1034,7 @@ The viewer server binds to `127.0.0.1` by default. The REST-served `/agentmemory
 
 <h2 id="iii-console"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-viewer.svg"><img src="assets/tags/section-viewer.svg" alt="iii Console" height="32" /></picture></h2>
 
-The viewer at `:3113` shows what your agent **remembered**. The [iii console](https://iii.dev/docs/console) shows what your agent **did** — every memory op as an OpenTelemetry trace, every KV entry editable, every function invocable, every stream tappable. Two windows on the same memory: one product-shaped, one engine-shaped.
+The viewer at `:18113` shows what your agent **remembered**. The [iii console](https://iii.dev/docs/console) shows what your agent **did** — every memory op as an OpenTelemetry trace, every KV entry editable, every function invocable, every stream tappable. Two windows on the same memory: one product-shaped, one engine-shaped.
 
 Watch a `memory_smart_search` fire and see the BM25 scan → embedding lookup → RRF fusion → reranker as a waterfall. Edit a stuck consolidation timer in the KV browser. Replay a `PostToolUse` hook with a tweaked payload. Pin the WebSocket stream and watch observations land live.
 
@@ -1051,19 +1051,19 @@ agentmemory ships this for free because every function call and trigger fires th
 **Launch alongside agentmemory:**
 
 ```bash
-# agentmemory viewer holds port 3113, so run the console on 3114.
-# Engine REST (3111), WebSocket (3112), and bridge (49134) defaults match agentmemory.
-iii console --port 3114
+# agentmemory viewer holds port 18113, so run the console on 18114.
+# Engine REST (18111), WebSocket (18112), and bridge (49134) defaults match agentmemory.
+iii console --port 18114
 ```
 
-Then open `http://localhost:3114`. Add `--enable-flow` for the experimental architecture-graph page.
+Then open `http://localhost:18114`. Add `--enable-flow` for the experimental architecture-graph page.
 
 Override engine endpoints only if you've moved them:
 
 ```bash
-iii console --port 3114 \
-  --engine-port 3111 \
-  --ws-port 3112 \
+iii console --port 18114 \
+  --engine-port 18111 \
+  --ws-port 18112 \
   --bridge-port 49134
 ```
 
@@ -1257,21 +1257,21 @@ agentmemory + iii-engine bind four ports by default. If a restart fails with `po
 
 | Port | Process | Purpose | Env override |
 |------|---------|---------|--------------|
-| `3111` | agentmemory | REST API + MCP HTTP + `/agentmemory/health` + `/agentmemory/livez` | `III_REST_PORT` |
-| `3112` | iii-engine | Internal streams worker (consumed by agentmemory + viewer) | `III_STREAMS_PORT` |
-| `3113` | agentmemory | Real-time viewer (`http://localhost:3113`) | `AGENTMEMORY_VIEWER_PORT` |
+| `18111` | agentmemory | REST API + MCP HTTP + `/agentmemory/health` + `/agentmemory/livez` | `III_REST_PORT` |
+| `18112` | iii-engine | Internal streams worker (consumed by agentmemory + viewer) | `III_STREAMS_PORT` |
+| `18113` | agentmemory | Real-time viewer (`http://localhost:18113`) | `AGENTMEMORY_VIEWER_PORT` |
 | `49134` | iii-engine | WebSocket — workers register here, OTel telemetry flows over it | `III_ENGINE_URL` (full URL, default `ws://localhost:49134`) |
 
 Stale-process cleanup when ports stay bound after a crashed run:
 
 ```bash
 # macOS / Linux — find whatever is on each port and kill it
-lsof -i :3111,3112,3113,49134
+lsof -i :18111,18112,18113,49134
 pkill -f agentmemory || true
 pkill -f 'iii ' || true
 
 # Windows
-netstat -ano | findstr ":3111 :3112 :3113 :49134"
+netstat -ano | findstr ":18111 :18112 :18113 :49134"
 taskkill /F /PID <pid>
 ```
 
@@ -1370,8 +1370,8 @@ Create `~/.agentmemory/.env`:
 # Auth
 # AGENTMEMORY_SECRET=your-secret
 
-# Ports (defaults: 3111 API, 3113 viewer)
-# III_REST_PORT=3111
+# Ports (defaults: 18111 API, 18113 viewer)
+# III_REST_PORT=18111
 
 # Features
 # AGENTMEMORY_AUTO_COMPRESS=false  # OFF by default (#138). When on,
@@ -1431,7 +1431,7 @@ Create `~/.agentmemory/.env`:
 
 <h2 id="api"><picture><source media="(prefers-color-scheme: dark)" srcset="assets/tags/light/section-api.svg"><img src="assets/tags/section-api.svg" alt="API" height="32" /></picture></h2>
 
-126 endpoints on port `3111`. The REST API binds to `127.0.0.1` by default. Protected endpoints require `Authorization: Bearer <secret>` when `AGENTMEMORY_SECRET` is set, and mesh sync endpoints require `AGENTMEMORY_SECRET` on both peers.
+126 endpoints on port `18111`. The REST API binds to `127.0.0.1` by default. Protected endpoints require `Authorization: Bearer <secret>` when `AGENTMEMORY_SECRET` is set, and mesh sync endpoints require `AGENTMEMORY_SECRET` on both peers.
 
 <details>
 <summary>Key endpoints</summary>

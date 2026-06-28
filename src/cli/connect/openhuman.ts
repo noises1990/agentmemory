@@ -12,7 +12,7 @@ export const adapter: ConnectAdapter = {
   displayName: "OpenHuman",
   docs: DOCS,
   protocolNote:
-    "→ Using native hooks (REST API at :3111). MCP not required.",
+    "→ Using native hooks (REST API at :18111). MCP not required.",
 
   detect(): boolean {
     return existsSync(OPENHUMAN_DIR);
@@ -25,7 +25,7 @@ export const adapter: ConnectAdapter = {
     p.note(
       [
         "OpenHuman is a Memory-trait host. The expected wiring is the REST",
-        "proxy at http://localhost:3111 plus an OpenHuman-side Memory trait",
+        "proxy at http://localhost:18111 plus an OpenHuman-side Memory trait",
         "impl. Once integrations/openhuman/ lands in agentmemory we'll wire",
         "this up automatically.",
         "",

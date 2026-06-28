@@ -152,9 +152,9 @@ describe("agentmemory connect — claude-code adapter (mock filesystem)", () => 
     // env interpolation must carry a default so Claude Code
     // doesn't silently drop the server when the user hasn't exported
     // AGENTMEMORY_URL / AGENTMEMORY_SECRET. Defaults match the
-    // documented runtime (localhost:3111, no auth, all tools).
+    // documented runtime (localhost:18111, no auth, all tools).
     expect(entry.env.AGENTMEMORY_URL).toBe(
-      "${AGENTMEMORY_URL:-http://localhost:3111}",
+      "${AGENTMEMORY_URL:-http://localhost:18111}",
     );
     expect(entry.env.AGENTMEMORY_SECRET).toBe("${AGENTMEMORY_SECRET:-}");
     expect(entry.env.AGENTMEMORY_TOOLS).toBe("${AGENTMEMORY_TOOLS:-all}");
@@ -266,7 +266,7 @@ describe("agentmemory connect — copilot-cli adapter (mock filesystem)", () => 
       type: "local",
       ...EXPECTED_COPILOT_MCP_COMMAND,
       env: {
-        AGENTMEMORY_URL: "${AGENTMEMORY_URL:-http://localhost:3111}",
+        AGENTMEMORY_URL: "${AGENTMEMORY_URL:-http://localhost:18111}",
         AGENTMEMORY_SECRET: "${AGENTMEMORY_SECRET:-}",
         AGENTMEMORY_TOOLS: "${AGENTMEMORY_TOOLS:-all}",
       },
@@ -328,7 +328,7 @@ describe("agentmemory connect — copilot-cli adapter (mock filesystem)", () => 
     );
     const entry = config.mcpServers.agentmemory;
     expect(entry.env.AGENTMEMORY_URL).toBe(
-      "${AGENTMEMORY_URL:-http://localhost:3111}",
+      "${AGENTMEMORY_URL:-http://localhost:18111}",
     );
     expect(entry.env.AGENTMEMORY_SECRET).toBe("${AGENTMEMORY_SECRET:-}");
     expect(entry.env.AGENTMEMORY_TOOLS).toBe("${AGENTMEMORY_TOOLS:-all}");
@@ -344,7 +344,7 @@ describe("agentmemory connect — copilot-cli adapter (mock filesystem)", () => 
             type: "local",
             ...EXPECTED_COPILOT_MCP_COMMAND,
             env: {
-              AGENTMEMORY_URL: "${AGENTMEMORY_URL:-http://localhost:3111}",
+              AGENTMEMORY_URL: "${AGENTMEMORY_URL:-http://localhost:18111}",
               AGENTMEMORY_SECRET: "${AGENTMEMORY_SECRET:-}",
               AGENTMEMORY_TOOLS: "${AGENTMEMORY_TOOLS:-all}",
             },

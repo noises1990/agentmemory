@@ -38,7 +38,7 @@ function displayAgentmemoryUrl(): string {
   // placeholder through unexpanded.
   const raw = process.env["AGENTMEMORY_URL"];
   if (!raw || (raw.startsWith("${") && raw.endsWith("}"))) {
-    return "http://localhost:3111";
+    return "http://localhost:18111";
   }
   return raw;
 }

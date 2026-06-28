@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 
-const BASE_URL = process.env["AGENTMEMORY_URL"] || "http://localhost:3111";
+const BASE_URL = process.env["AGENTMEMORY_URL"] || "http://localhost:18111";
 const SECRET = process.env["AGENTMEMORY_SECRET"] || "";
 
 const SESSION_ID = `test_${Date.now()}`;

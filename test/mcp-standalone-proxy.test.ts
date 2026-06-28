@@ -13,7 +13,7 @@ function installFetch(handler: (url: string, init?: RequestInit) => Response): F
   return fn;
 }
 
-const BASE = "http://localhost:3111";
+const BASE = "http://localhost:18111";
 
 describe("@agentmemory/mcp standalone — server proxy (issue #159)", () => {
   const originalFetch = globalThis.fetch;
@@ -318,7 +318,7 @@ describe("@agentmemory/mcp standalone — server proxy (issue #159)", () => {
   it("logs probe failure to stderr so sandboxed clients can diagnose silently dropped tools", async () => {
     installFetch((url) => {
       if (url.endsWith("/agentmemory/livez")) {
-        throw new Error("ECONNREFUSED 127.0.0.1:3111");
+        throw new Error("ECONNREFUSED 127.0.0.1:18111");
       }
       return new Response("not found", { status: 404 });
     });

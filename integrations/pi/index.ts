@@ -29,7 +29,7 @@ type HealthResponse = {
   };
 };
 
-const DEFAULT_URL = process.env.AGENTMEMORY_URL || "http://localhost:3111";
+const DEFAULT_URL = process.env.AGENTMEMORY_URL || "http://localhost:18111";
 const guardPlaintextBearerAuth = createPlaintextBearerAuthGuard();
 const TOOL_GUIDANCE = [
   "agentmemory is available for cross-session memory.",
@@ -139,7 +139,7 @@ export default function agentmemoryExtension(pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       const health = await getHealth();
       if (!health) {
-        ctx.ui.notify("agentmemory is unreachable at http://localhost:3111", "warning");
+        ctx.ui.notify("agentmemory is unreachable at http://localhost:18111", "warning");
         return;
       }
       ctx.ui.notify(
@@ -158,7 +158,7 @@ export default function agentmemoryExtension(pi: ExtensionAPI) {
       const health = await getHealth();
       if (!health) {
         return {
-          content: [{ type: "text", text: "agentmemory is unreachable at http://localhost:3111" }],
+          content: [{ type: "text", text: "agentmemory is unreachable at http://localhost:18111" }],
           details: { ok: false },
         };
       }

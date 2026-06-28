@@ -1,11 +1,11 @@
 workers:
   - name: iii-http
     config:
-      port: 3111
+      port: 18111
       host: 0.0.0.0
       default_timeout: 180000
       cors:
-        allowed_origins: ["http://localhost:3111", "http://localhost:3113", "http://127.0.0.1:3111", "http://127.0.0.1:3113"]
+        allowed_origins: ["http://localhost:18111", "http://localhost:18113", "http://127.0.0.1:18111", "http://127.0.0.1:18113"]
         allowed_methods: [GET, POST, PUT, DELETE, OPTIONS]
   - name: iii-state
     config:
@@ -28,7 +28,7 @@ workers:
         name: kv
   - name: iii-stream
     config:
-      port: 3112
+      port: 18112
       host: 0.0.0.0
       adapter:
         name: kv

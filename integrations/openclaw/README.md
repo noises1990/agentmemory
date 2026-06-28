@@ -27,7 +27,7 @@
 **Paste this prompt into OpenClaw** and it does the whole setup for you:
 
 ```text
-Install agentmemory for OpenClaw. Run `npx @agentmemory/agentmemory` in a separate terminal to start the memory server on localhost:3111.
+Install agentmemory for OpenClaw. Run `npx @agentmemory/agentmemory` in a separate terminal to start the memory server on localhost:18111.
 
 For zero-code setup, add this MCP server so OpenClaw gets all 43 memory tools:
 
@@ -51,7 +51,7 @@ For deeper memory integration, copy `integrations/openclaw` from the agentmemory
       "agentmemory": {
         "enabled": true,
         "config": {
-          "base_url": "http://localhost:3111",
+          "base_url": "http://localhost:18111",
           "token_budget": 2000,
           "min_confidence": 0.5,
           "fallback_on_error": true,
@@ -62,7 +62,7 @@ For deeper memory integration, copy `integrations/openclaw` from the agentmemory
   }
 }
 
-Restart OpenClaw. Verify with `curl http://localhost:3111/agentmemory/health`. Open http://localhost:3113 for the real-time viewer.
+Restart OpenClaw. Verify with `curl http://localhost:18111/agentmemory/health`. Open http://localhost:18113 for the real-time viewer.
 ```
 
 That's it. OpenClaw handles the rest.
@@ -111,7 +111,7 @@ Then enable it in `~/.openclaw/openclaw.json`:
       "agentmemory": {
         "enabled": true,
         "config": {
-          "base_url": "http://localhost:3111",
+          "base_url": "http://localhost:18111",
           "token_budget": 2000,
           "min_confidence": 0.5,
           "fallback_on_error": true,
@@ -140,9 +140,9 @@ The plugin currently registers a `promptBuilder` only — not a full `MemoryPlug
 
 **`plugins.slots.memory = "agentmemory"` reports `unavailable`** — upgrade to v0.9.11+. Older versions of this plugin registered hooks but never called `api.registerMemoryCapability(...)`, so the memory-slot machinery did not consider the slot claimed. The current plugin registers a memory capability (prompt builder) at startup, which is the documented OpenClaw API for occupying the slot.
 
-**Connection refused on port 3111** — the agentmemory server is not running. Start it with `npx @agentmemory/agentmemory`.
+**Connection refused on port 18111** — the agentmemory server is not running. Start it with `npx @agentmemory/agentmemory`.
 
-**No memories returned** — open `http://localhost:3113` and verify observations are being captured.
+**No memories returned** — open `http://localhost:18113` and verify observations are being captured.
 
 ## See also
 

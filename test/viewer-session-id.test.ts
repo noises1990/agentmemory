@@ -115,11 +115,11 @@ function loadViewerSandbox() {
     window: {
       location: {
         search: "",
-        port: "3113",
+        port: "18113",
         protocol: "http:",
         hostname: "localhost",
-        host: "localhost:3113",
-        origin: "http://localhost:3113",
+        host: "localhost:18113",
+        origin: "http://localhost:18113",
       },
       matchMedia: () => ({ matches: false }),
       addEventListener: () => {},

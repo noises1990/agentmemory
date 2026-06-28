@@ -1,4 +1,4 @@
-const DEFAULT_URL = "http://localhost:3111";
+const DEFAULT_URL = "http://localhost:18111";
 const DEFAULT_HEALTH_PROBE_TIMEOUT_MS = 2_000;
 const CALL_TIMEOUT_MS = 15_000;
 const LOCAL_MODE_TTL_MS = 30_000;

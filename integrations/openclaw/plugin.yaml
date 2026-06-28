@@ -20,7 +20,7 @@ hooks:
 
 config:
   enabled: true
-  base_url: http://localhost:3111
+  base_url: http://localhost:18111
   token_budget: 2000
   min_confidence: 0.5
   fallback_on_error: true
