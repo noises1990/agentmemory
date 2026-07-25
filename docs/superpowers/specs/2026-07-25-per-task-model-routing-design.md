@@ -138,6 +138,10 @@ recommended values filled in:
 # AGENTMEMORY_QUERY_EXPANSION_MODEL=@cf/meta/llama-3.2-3b-instruct
 ```
 
+A middle option, `@cf/openai/gpt-oss-20b`, is noted alongside for tasks that
+matter without being durable memory — half the cost of the 120b with correct
+file extraction, but less reliable at pulling out decisions (Appendix A).
+
 The fallback is deliberate: without it, adding a task later would stop the
 daemon booting until a new variable was set. Inheriting the default is the safer
 failure mode.
@@ -201,11 +205,72 @@ from a full `ProviderConfig`, so allowing `AGENTMEMORY_<TASK>_PROVIDER` — runn
 field in that config, not a redesign. Deferred because it needs a decision on
 per-task credentials.
 
-## Appendix: benchmark data
+## Appendix A: model selection benchmark — realistic session
 
 Measured 2026-07-25 against live Workers AI using the real `SUMMARY_SYSTEM`
-prompt and `buildSummaryPrompt`, over a 3-observation session (605 chars).
-`neurons` as reported by the API.
+prompt and `buildSummaryPrompt`, over a seeded 21-observation session
+(5,054 chars) representing a multi-file billing refactor. Three runs each.
+`neurons` as reported by the API. The session touches exactly 8 files, so the
+file count is an objective accuracy check rather than a taste judgement.
+
+| Model | neurons | sec | decisions | concepts | files (8 = correct) |
+|-|-|-|-|-|-|
+| `@cf/meta/llama-3.2-3b-instruct` | 14.0–15.1 | 1.2 | 1, 1, 1 | 2–3 | 8, 9, 7 |
+| `@cf/openai/gpt-oss-20b` | 45.9–57.8 | 3.8–6.8 | 1, 4, 4 | 5–8 | 8, 8, 8 |
+| `@cf/openai/gpt-oss-120b` | 103–112 | 4.5–6.6 | 4, 4, 4 | 7–8 | 8, 8, 8 |
+| `@cf/google/gemma-4-26b-a4b-it` | 51.5–56.7 | 12.1–13.7 | 3, 4, 3 | 5–6 | 8, 8, 8 |
+| `@cf/zai-org/glm-5.2` | 389.7–396.1 | 5.4–9.6 | 4, 5, 4 | 8–9 | 8, 8, 8 |
+| `@cf/moonshotai/kimi-k2.6` | 379.2–584.6 | 18.0–30.6 | 5, 5, 4 | 8 | 8, 8, 8 |
+
+**Strong tier — `@cf/openai/gpt-oss-120b`.** The only model with zero variance on
+decision extraction (4/4/4) and correct file lists every run, at roughly a
+quarter of GLM 5.2's cost and a fifth of Kimi K2.6's. GLM buys one extra concept
+for 3.6x the price; Kimi buys one extra decision for 4.6x the price and 18–31s
+of latency.
+
+**Cheap tier — `@cf/meta/llama-3.2-3b-instruct`.** Fastest and cheapest by a wide
+margin, but at realistic input it extracts 2–3 concepts against the 120b's 7–8,
+never more than one decision, and produced *incorrect* file lists (9 and 7
+against a true 8 — one hallucinated, one dropped). Appropriate for `compress`,
+which summarises a single observation, and disqualifying for anything durable.
+This is the concrete justification for the tier split.
+
+**Documented middle option — `@cf/openai/gpt-oss-20b`.** Half the cost of the
+120b with perfect file accuracy, but decision extraction swung 1, 4, 4 across
+three runs. Reasonable for tasks that matter without being durable memory;
+listed in `.env.example` as an alternative users can assign per task.
+
+**Rejected.** `gemma-4-26b-a4b-it`: cheaper than the 120b but 2.5x slower with
+fewer concepts; its 256k context is the only reason to reach for it.
+`kimi-k2.6` / `kimi-k2.7-code`: frontier 1T-parameter models whose extraction
+matched the 120b's while costing 4-5x and taking 18–31s.
+`nemotron-3-120b-a12b`: 3.6x run-to-run cost variance.
+`llama-3.3-70b-instruct-fp8-fast`: vaguest titles, and see the context table.
+
+Cost scaled ~2.8x for every model as input grew ~8x, so the ranking is not an
+artifact of prompt size.
+
+## Appendix B: context windows
+
+Checked because it nearly bit us — `llama-3.3-70b-instruct-fp8-fast` was a
+serious candidate on cost before this was known.
+
+| Model | Context |
+|-|-|
+| `@cf/meta/llama-3.3-70b-instruct-fp8-fast` | 24k |
+| `@cf/meta/llama-3.2-3b-instruct` | 80k |
+| `@cf/openai/gpt-oss-120b`, `gpt-oss-20b` | 128k |
+| `@cf/google/gemma-4-26b-a4b-it` | 256k |
+| `@cf/moonshotai/kimi-k2.6`, `@cf/zai-org/glm-5.2` | 262k |
+
+24k would constrain `summarize` and `consolidation-pipeline` on long sessions.
+The selected models — 128k strong, 80k cheap — have ample headroom.
+
+## Appendix C: small-session benchmark (superseded)
+
+The first pass used a 3-observation session (605 chars). Retained because it is
+what disqualified the original default and surfaced the format issue; Appendix A
+supersedes it for model selection.
 
 | Model | neurons | out tok | sec | Notes |
 |-|-|-|-|-|
@@ -218,17 +283,17 @@ prompt and `buildSummaryPrompt`, over a 3-observation session (605 chars).
 | `@cf/zai-org/glm-5.2` | 129.0–170.6 (5 runs) | 211–227 | 2.7–5.1 | needs MAX_TOKENS ≥ 4096 |
 | `@cf/nvidia/nemotron-3-120b-a12b` | 528.5 / 144.9 / 150.8 | 944–3764 | 8.4–32.2 | 3.6x run-to-run variance |
 
-All eight produced valid XML against the required tag set, so format compliance
-did not discriminate. Selection came down to cost, stability and latency.
+Every model produced valid XML against the required tag set, so format
+compliance never discriminated at either session size. Two findings from this
+pass still stand:
 
-`@cf/openai/gpt-oss-120b` was chosen for the strong recommendation: cheapest
-large model, tightest cost variance of any model tested (a 2.4 neuron spread
-across five runs, against 41.6 for GLM 5.2 and 383.6 for Nemotron), and fastest
-of the large models. `@cf/meta/llama-3.2-3b-instruct` was chosen for the cheap
-recommendation: lowest cost, lowest latency, and unlike the current 8B default it
-obeys the "no additional text" instruction.
+- `@cf/meta/llama-3.1-8b-instruct-fp8`, the provider's default at the time, was
+  the slowest model tested (8.8s) and one of only two that emitted prose before
+  `<summary>` despite the prompt forbidding it. The daemon's parser tolerates
+  the preamble, but it is the model disobeying the instruction.
+- Small sessions do not separate models. Every candidate looked adequate at 605
+  characters; the 3B's concept and file-accuracy failures only appeared at
+  realistic size. Do not select models on short prompts.
 
-Caveats: one prompt, one small session, and title quality was assessed
-subjectively. Sufficient to separate tiers, not to rank models on nuance.
-
-Reproduce with `bench-models.ts` (untracked working-tree script).
+Reproduce with `bench-models.ts` and `seed-large-session.ts` (untracked
+working-tree scripts).
