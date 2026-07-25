@@ -19,6 +19,7 @@ import {
   createEmbeddingProvider,
   createImageEmbeddingProvider,
 } from "./providers/index.js";
+import { makeTaskProviderFactory } from "./providers/task-router.js";
 import { StateKV } from "./state/kv.js";
 import { KV } from "./state/schema.js";
 import { VectorIndex } from "./state/vector-index.js";
@@ -162,6 +163,7 @@ async function main() {
   const embeddingConfig = loadEmbeddingConfig();
   const fallbackConfig = loadFallbackConfig();
 
+  const taskProviders = makeTaskProviderFactory(config, fallbackConfig);
   const provider =
     fallbackConfig.providers.length > 0
       ? createFallbackProvider(config.provider, fallbackConfig)
@@ -175,6 +177,10 @@ async function main() {
   bootLog(
     `Provider: ${config.provider.provider} (${config.provider.model})`,
   );
+  for (const [model, tasks] of taskProviders.routingSummary()) {
+    if (model === config.provider.model) continue;
+    bootLog(`  ↳ ${tasks.join(", ")} → ${model}`);
+  }
   if (embeddingProvider) {
     bootLog(
       `Embedding provider: ${embeddingProvider.name} (${embeddingProvider.dimensions} dims)`,
@@ -240,13 +246,13 @@ async function main() {
     registerSlotsFunctions(sdk, kv);
   }
   registerDiskSizeManager(sdk, kv);
-  registerCompressFunction(sdk, kv, provider, metricsStore);
+  registerCompressFunction(sdk, kv, taskProviders.providerFor("compress"), metricsStore);
   registerSearchFunction(sdk, kv);
   registerContextFunction(sdk, kv, config.tokenBudget);
-  registerSummarizeFunction(sdk, kv, provider, metricsStore);
+  registerSummarizeFunction(sdk, kv, taskProviders.providerFor("summarize"), metricsStore);
   registerMigrateFunction(sdk, kv);
   registerFileIndexFunction(sdk, kv);
-  registerConsolidateFunction(sdk, kv, provider);
+  registerConsolidateFunction(sdk, kv, taskProviders.providerFor("consolidate"));
   registerPatternsFunction(sdk, kv);
   registerRememberFunction(sdk, kv);
   registerEvictFunction(sdk, kv);
@@ -267,11 +273,11 @@ async function main() {
   }
 
   if (isGraphExtractionEnabled()) {
-    registerGraphFunction(sdk, kv, provider);
+    registerGraphFunction(sdk, kv, taskProviders.providerFor("graph"));
     bootLog(`Knowledge graph: extraction enabled`);
   }
 
-  registerConsolidationPipelineFunction(sdk, kv, provider);
+  registerConsolidationPipelineFunction(sdk, kv, taskProviders.providerFor("consolidation-pipeline"));
   bootLog(`Consolidation pipeline: registered (CONSOLIDATION_ENABLED=${isConsolidationEnabled() ? "true" : "false"})`);
 
   if (isAutoCompressEnabled()) {
@@ -312,25 +318,25 @@ async function main() {
   registerCheckpointsFunction(sdk, kv);
   registerMeshFunction(sdk, kv, secret);
   registerBranchAwareFunction(sdk, kv);
-  registerFlowCompressFunction(sdk, kv, provider);
+  registerFlowCompressFunction(sdk, kv, taskProviders.providerFor("flow-compress"));
   registerSentinelsFunction(sdk, kv);
   registerSketchesFunction(sdk, kv);
-  registerCrystallizeFunction(sdk, kv, provider);
+  registerCrystallizeFunction(sdk, kv, taskProviders.providerFor("crystallize"));
   registerDiagnosticsFunction(sdk, kv);
   registerFacetsFunction(sdk, kv);
   registerVerifyFunction(sdk, kv);
   registerLessonsFunctions(sdk, kv);
   registerObsidianExportFunction(sdk, kv);
-  registerReflectFunctions(sdk, kv, provider);
+  registerReflectFunctions(sdk, kv, taskProviders.providerFor("reflect"));
   registerWorkingMemoryFunctions(sdk, kv, config.tokenBudget);
-  registerSkillExtractFunctions(sdk, kv, provider);
+  registerSkillExtractFunctions(sdk, kv, taskProviders.providerFor("skill-extract"));
   registerCascadeFunction(sdk, kv);
 
-  registerSlidingWindowFunction(sdk, kv, provider);
-  registerQueryExpansionFunction(sdk, provider);
-  registerTemporalGraphFunctions(sdk, kv, provider);
+  registerSlidingWindowFunction(sdk, kv, taskProviders.providerFor("sliding-window"));
+  registerQueryExpansionFunction(sdk, taskProviders.providerFor("query-expansion"));
+  registerTemporalGraphFunctions(sdk, kv, taskProviders.providerFor("temporal-graph"));
   registerRetentionFunctions(sdk, kv);
-  registerCompressFileFunction(sdk, kv, provider);
+  registerCompressFileFunction(sdk, kv, taskProviders.providerFor("compress-file"));
   registerReplayFunctions(sdk, kv);
   bootLog(
     `v0.6 advanced retrieval: sliding-window, query-expansion, temporal-graph, retention-scoring`,
