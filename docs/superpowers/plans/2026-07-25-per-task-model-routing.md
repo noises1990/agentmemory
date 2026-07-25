@@ -22,7 +22,8 @@
 - Commit with sign-off: `git commit -s`. No attribution trailers.
 - Do not touch `CHANGELOG.md`.
 - Do not commit to `feat/cloudflare-provider` — that branch is an open upstream PR.
-- Baseline before starting: `npm test` shows 1436 passing, 5 failing. The 5 failures are in `test/hook-project.test.ts`, are pre-existing on `main`, and are caused by the clone directory being named `agentmemory`-something. Do not attempt to fix them; do not count them as regressions.
+- Baseline before starting: `npm test` shows **1441 passing, 0 failing**. (Earlier runs of this suite showed 5 failures in `test/hook-project.test.ts`; those tests assert `basename(cwd) === "agentmemory"` and only failed while the clone lived at `/tmp/agentmem-full`. The repo now sits at `~/Projects/agentmemory`, so they pass. Any failure you see is a real regression.)
+- `npx tsc --noEmit` reports 25 pre-existing errors in unrelated files. Those are the baseline; do not fix them, but add no new ones.
 
 ---
 
