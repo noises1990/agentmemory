@@ -108,6 +108,13 @@ describe("makeTaskProviderFactory", () => {
     const routed = [...f.routingSummary().values()].flat();
     expect(routed.sort()).toEqual([...ALL_TASKS].sort());
   });
+
+  it("modelFor reports the model an overridden task actually resolved to", () => {
+    process.env["AGENTMEMORY_COMPRESS_MODEL"] = "@cf/meta/llama-3.2-3b-instruct";
+    const f = makeTaskProviderFactory(CONFIG, NO_FALLBACK);
+    expect(f.modelFor("compress")).toBe("@cf/meta/llama-3.2-3b-instruct");
+    expect(f.modelFor("summarize")).toBe("@cf/openai/gpt-oss-120b");
+  });
 });
 
 describe("mostDegraded", () => {
