@@ -41,6 +41,21 @@ export function resolveGatewayId(): string | undefined {
 }
 
 /**
+ * Strict positive-integer parse: the whole string must be digits.
+ *
+ * parseInt() would accept "1024abc" as 1024 and "10.5" as 10. For a dimension
+ * count that silently produces vectors withDimensionGuard rejects on every
+ * embed, so a typo has to fail at parse time, not at first use.
+ */
+export function parsePositiveInt(raw: string | undefined): number | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) return undefined;
+  const n = Number(trimmed);
+  return Number.isFinite(n) && n > 0 ? n : undefined;
+}
+
+/**
  * Auth + content headers, plus AI Gateway selection.
  *
  * The default endpoint already routes through the account's default gateway,

@@ -1385,6 +1385,8 @@ Create `~/.agentmemory/.env`:
 # MINIMAX_API_KEY=...
 # CLOUDFLARE_API_TOKEN=...            # Workers AI; also enables Cloudflare embeddings
 # CLOUDFLARE_ACCOUNT_ID=...           # Required unless CLOUDFLARE_AI_BASE_URL is set
+# CLOUDFLARE_AI_BASE_URL=...          # Override the chat endpoint
+# CLOUDFLARE_AI_GATEWAY_ID=...        # Pin a named AI Gateway (cf-aig-gateway-id)
 # OPENAI_API_KEY=***                       # NOTE: this same key auto-activates BOTH the
 #                                          # OpenAI LLM provider (here) AND the OpenAI
 #                                          # embedding provider (further below). Set
@@ -1424,6 +1426,7 @@ Create `~/.agentmemory/.env`:
 # CLOUDFLARE_ACCOUNT_ID=...
 # CLOUDFLARE_EMBEDDING_MODEL=@cf/baai/bge-base-en-v1.5
 # CLOUDFLARE_EMBEDDING_DIMENSIONS=768     # Required when the model is not in the known-models table
+# CLOUDFLARE_EMBEDDING_BASE_URL=...       # Override the embedding endpoint
 
 # Outbound LLM / embedding timeout
 # AGENTMEMORY_LLM_TIMEOUT_MS=60000       # Default: 60 000 ms (60 s). Applies to every
