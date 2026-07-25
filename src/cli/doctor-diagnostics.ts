@@ -200,7 +200,8 @@ export function buildDiagnostics(effects: DoctorEffects): Diagnostic[] {
       moreInfo:
         "Set at least one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, CLOUDFLARE_API_TOKEN, GEMINI_API_KEY, " +
         "OPENROUTER_API_KEY, MINIMAX_API_KEY. The daemon picks the first that resolves " +
-        "to a real (non-placeholder) value at startup.",
+        "to a real (non-placeholder) value at startup. CLOUDFLARE_API_TOKEN additionally " +
+        "requires CLOUDFLARE_ACCOUNT_ID unless a Cloudflare base URL is set.",
       check: async () => {
         if (!effects.envFileExists()) {
           return { ok: false, detail: "env file missing (run env-missing fix first)" };

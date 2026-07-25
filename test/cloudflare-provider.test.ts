@@ -143,6 +143,18 @@ describe("CloudflareEmbeddingProvider — dimensions", () => {
     );
   });
 
+  // parseInt would take "1024abc" as 1024 and "10.5" as 10, producing vectors
+  // withDimensionGuard rejects on every embed. Typos fail at parse time.
+  it.each(["1024abc", "10.5", "-768", "abc", "1e3"])(
+    "rejects the malformed dimensions override %j",
+    (value) => {
+      process.env["CLOUDFLARE_EMBEDDING_DIMENSIONS"] = value;
+      expect(() => new CloudflareEmbeddingProvider("test-token")).toThrow(
+        /must be a positive integer/,
+      );
+    },
+  );
+
   it("throws without an API token", () => {
     expect(() => new CloudflareEmbeddingProvider()).toThrow(/CLOUDFLARE_API_TOKEN is required/);
   });

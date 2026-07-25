@@ -4,15 +4,18 @@ import { fetchWithTimeout } from "../_fetch.js";
 import {
   CLOUDFLARE_DEFAULT_EMBEDDING_MODEL,
   buildHeaders,
+  parsePositiveInt,
   resolveEndpoint,
   resolveGatewayId,
 } from "../_cloudflare-shared.js";
 
 /**
  * Known Workers AI embedding model dimensions. Extend as new models ship.
- * Override in any case via CLOUDFLARE_EMBEDDING_DIMENSIONS — a wrong value
- * here makes withDimensionGuard throw on every embed call, so an unknown
- * model falling back to the default size is a hard failure, not a silent one.
+ *
+ * A model absent from this table reports DEFAULT_DIMENSIONS rather than
+ * throwing; if that guess is wrong, withDimensionGuard rejects the first embed
+ * with the real size in the message. Set CLOUDFLARE_EMBEDDING_DIMENSIONS to
+ * skip that round trip.
  */
 const MODEL_DIMENSIONS: Record<string, number> = {
   "@cf/baai/bge-small-en-v1.5": 384,
@@ -27,8 +30,8 @@ const DEFAULT_DIMENSIONS = MODEL_DIMENSIONS[CLOUDFLARE_DEFAULT_EMBEDDING_MODEL] 
 
 function resolveDimensions(model: string, override: string | undefined): number {
   if (override !== undefined && override.trim().length > 0) {
-    const parsed = parseInt(override, 10);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
+    const parsed = parsePositiveInt(override);
+    if (parsed === undefined) {
       throw new Error(
         `CLOUDFLARE_EMBEDDING_DIMENSIONS must be a positive integer, got: ${override}`,
       );
@@ -53,8 +56,10 @@ function resolveDimensions(model: string, override: string | undefined): number 
  * Optional:
  *   CLOUDFLARE_EMBEDDING_MODEL      — model name (default:
  *                                     CLOUDFLARE_DEFAULT_EMBEDDING_MODEL)
- *   CLOUDFLARE_EMBEDDING_DIMENSIONS — override reported dimensions (required for
- *                                     models not in the MODEL_DIMENSIONS table above)
+ *   CLOUDFLARE_EMBEDDING_DIMENSIONS — override reported dimensions; set it for
+ *                                     models absent from the MODEL_DIMENSIONS
+ *                                     table above, which otherwise report the
+ *                                     default size
  *   CLOUDFLARE_EMBEDDING_BASE_URL   — full embedding endpoint override
  *   CLOUDFLARE_AI_GATEWAY_ID        — route through a named AI Gateway; shared
  *                                     with the chat provider, selected by the

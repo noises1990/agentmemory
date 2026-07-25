@@ -4,6 +4,7 @@ import { fetchWithTimeout } from "./_fetch.js";
 import {
   CLOUDFLARE_DEFAULT_CHAT_MODEL,
   buildHeaders,
+  parsePositiveInt,
   resolveEndpoint,
   resolveGatewayId,
 } from "./_cloudflare-shared.js";
@@ -120,12 +121,4 @@ function resolveTimeout(): number {
   const raw = getEnvVar("CLOUDFLARE_TIMEOUT_MS") || getEnvVar("AGENTMEMORY_LLM_TIMEOUT_MS");
   const parsed = parsePositiveInt(raw);
   return parsed ?? DEFAULT_TIMEOUT_MS;
-}
-
-function parsePositiveInt(raw: string | undefined): number | undefined {
-  if (!raw) return undefined;
-  const trimmed = raw.trim();
-  if (!/^\d+$/.test(trimmed)) return undefined;
-  const n = Number(trimmed);
-  return Number.isFinite(n) && n > 0 ? n : undefined;
 }
