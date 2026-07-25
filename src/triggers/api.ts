@@ -6,6 +6,7 @@ import { StateKV } from "../state/kv.js";
 import { getLatestHealth } from "../health/monitor.js";
 import type { MetricsStore } from "../eval/metrics-store.js";
 import type { ResilientProvider } from "../providers/resilient.js";
+import { mostDegraded } from "../providers/task-router.js";
 import { VERSION } from "../version.js";
 import { timingSafeCompare } from "../auth.js";
 import { isSlotsEnabled, isReflectEnabled } from "../functions/slots.js";
@@ -140,7 +141,7 @@ export function registerApiTriggers(
   kv: StateKV,
   secret?: string,
   metricsStore?: MetricsStore,
-  provider?: ResilientProvider | { circuitState?: unknown },
+  providers?: ResilientProvider[],
 ): void {
   sdk.registerFunction(
     "middleware::api-auth",
@@ -252,8 +253,11 @@ export function registerApiTriggers(
     async (req: ApiRequest): Promise<Response> => {
       const health = await getLatestHealth(kv);
       const functionMetrics = metricsStore ? await metricsStore.getAll() : [];
-      const circuitBreaker =
-        provider && "circuitState" in provider ? provider.circuitState : null;
+      // Report the worst breaker across every routed model, not just the
+      // default one — the highest-volume task often runs on a different model.
+      const circuitBreaker = mostDegraded(
+        (providers ?? []).map((p) => p.circuitState),
+      );
 
       const status = health?.status || "healthy";
       const statusCode = status === "critical" ? 503 : 200;

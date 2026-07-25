@@ -125,3 +125,26 @@ describe("mostDegraded", () => {
     expect(mostDegraded([closed, closed])?.state).toBe("closed");
   });
 });
+
+describe("health aggregation across routed providers", () => {
+  const originalEnv = process.env;
+
+  beforeEach(() => {
+    process.env = { ...originalEnv };
+    clearEnv([...COMPETING_KEYS, ...ALL_TASKS.map(envVarForTask)]);
+    process.env["CLOUDFLARE_API_TOKEN"] = "test-token";
+    process.env["CLOUDFLARE_ACCOUNT_ID"] = "test-account";
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  it("exposes every distinct provider so health can inspect all of them", () => {
+    process.env["AGENTMEMORY_COMPRESS_MODEL"] = "@cf/meta/llama-3.2-3b-instruct";
+    const f = makeTaskProviderFactory(CONFIG, NO_FALLBACK);
+    const states = f.allProviders().map((p) => p.circuitState);
+    expect(states).toHaveLength(2);
+    expect(mostDegraded(states)?.state).toBe("closed");
+  });
+});

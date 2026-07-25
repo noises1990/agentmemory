@@ -14,8 +14,6 @@ import {
   isDropStaleIndexEnabled,
 } from "./config.js";
 import {
-  createProvider,
-  createFallbackProvider,
   createEmbeddingProvider,
   createImageEmbeddingProvider,
 } from "./providers/index.js";
@@ -164,10 +162,6 @@ async function main() {
   const fallbackConfig = loadFallbackConfig();
 
   const taskProviders = makeTaskProviderFactory(config, fallbackConfig);
-  const provider =
-    fallbackConfig.providers.length > 0
-      ? createFallbackProvider(config.provider, fallbackConfig)
-      : createProvider(config.provider);
 
   const embeddingProvider = createEmbeddingProvider();
   const imageEmbeddingProvider = createImageEmbeddingProvider();
@@ -375,7 +369,7 @@ async function main() {
   );
   registerRecentSearchesSweepFunction(sdk, kv);
 
-  registerApiTriggers(sdk, kv, secret, metricsStore, provider);
+  registerApiTriggers(sdk, kv, secret, metricsStore, taskProviders.allProviders());
   registerEventTriggers(sdk, kv);
   registerMcpEndpoints(sdk, kv, secret);
 
