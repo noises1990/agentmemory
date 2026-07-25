@@ -637,6 +637,8 @@ cd ~/Projects/agentmemory && node dist/cli.mjs stop && node dist/cli.mjs
 
 - [ ] **Step 2: Confirm the boot log shows the split**
 
+`bootLog` output is gated behind `--verbose`, so start with `node dist/cli.mjs --verbose` for this step or you will see nothing at all — not even the existing `Provider:` line.
+
 Expected in the boot output:
 
 ```
