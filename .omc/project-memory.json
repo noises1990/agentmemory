@@ -395,6 +395,12 @@
       "type": "file"
     },
     {
+      "path": "test\\cli-connect.test.ts",
+      "accessCount": 6,
+      "lastAccessed": 1785690249180,
+      "type": "file"
+    },
+    {
       "path": "test\\slots-flag-gate.test.ts",
       "accessCount": 4,
       "lastAccessed": 1785681961670,
@@ -413,15 +419,15 @@
       "type": "file"
     },
     {
-      "path": "test\\cli-connect.test.ts",
-      "accessCount": 4,
-      "lastAccessed": 1785688833257,
-      "type": "file"
-    },
-    {
       "path": "src\\cli\\connect\\opencode.ts",
       "accessCount": 4,
       "lastAccessed": 1785688878460,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\index.ts",
+      "accessCount": 4,
+      "lastAccessed": 1785690242297,
       "type": "file"
     },
     {
@@ -458,12 +464,6 @@
       "path": "src\\cli\\connect\\json-mcp-adapter.ts",
       "accessCount": 2,
       "lastAccessed": 1785678272578,
-      "type": "file"
-    },
-    {
-      "path": "src\\cli\\connect\\index.ts",
-      "accessCount": 2,
-      "lastAccessed": 1785678304593,
       "type": "file"
     },
     {
@@ -566,6 +566,36 @@
       "path": "scripts\\windows\\README.md",
       "accessCount": 1,
       "lastAccessed": 1785687350432,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\coroi\\.agentmemory\\scripts\\migrate-codex-secrets.ps1",
+      "accessCount": 1,
+      "lastAccessed": 1785689636280,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\coroi\\.agentmemory\\scripts\\sync-vault-to-env.ps1",
+      "accessCount": 1,
+      "lastAccessed": 1785689733487,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\coroi\\.codex",
+      "accessCount": 1,
+      "lastAccessed": 1785689910230,
+      "type": "directory"
+    },
+    {
+      "path": "src\\cli\\connect\\claude-desktop.ts",
+      "accessCount": 1,
+      "lastAccessed": 1785690224287,
+      "type": "file"
+    },
+    {
+      "path": "test\\connect-claude-desktop.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1785690272917,
       "type": "file"
     }
   ],

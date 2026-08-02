@@ -3,6 +3,7 @@ import pc from "picocolors";
 import type { ConnectAdapter, ConnectOptions, ConnectResult } from "./types.js";
 import { adapter as antigravity } from "./antigravity.js";
 import { adapter as claudeCode } from "./claude-code.js";
+import { adapter as claudeDesktop } from "./claude-desktop.js";
 import { adapter as cline } from "./cline.js";
 import { adapter as copilotCli } from "./copilot-cli.js";
 import { adapter as codex } from "./codex.js";
@@ -22,6 +23,9 @@ import { adapter as zed } from "./zed.js";
 
 export const ADAPTERS: readonly ConnectAdapter[] = [
   claudeCode,
+  // Immediately after claude-code: they are different installs reading
+  // different files, and someone wiring one usually wants both.
+  claudeDesktop,
   copilotCli,
   codex,
   cursor,

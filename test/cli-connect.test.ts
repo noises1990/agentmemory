@@ -66,6 +66,7 @@ describe("agentmemory connect — dispatcher", () => {
       [
         "antigravity",
         "claude-code",
+        "claude-desktop",
         "cline",
         "copilot-cli",
         "codex",
@@ -84,7 +85,7 @@ describe("agentmemory connect — dispatcher", () => {
         "zed",
       ].sort(),
     );
-    expect(ADAPTERS.length).toBe(18);
+    expect(ADAPTERS.length).toBe(19);
   });
 
   it("every adapter exposes detect() and install()", () => {
