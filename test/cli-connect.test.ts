@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 
 import {
@@ -9,22 +9,36 @@ import {
   resolveAdapter,
 } from "../src/cli/connect/index.js";
 import type { ConnectAdapter } from "../src/cli/connect/types.js";
+import { VERSION } from "../src/version.js";
 
 // Every adapter now shares this shape, not just Copilot. On Windows a
 // bare `npx` command is resolved through cmd.exe implicitly, orphaning
 // the real node process on client exit; spawning cmd.exe explicitly
 // keeps it a direct child. Copilot always did this, which is why it was
 // `connect`'s sole Windows exception.
-const EXPECTED_MCP_COMMAND =
-  process.platform === "win32"
+// This build ships its own MCP server (tsdown entry src/mcp/standalone.ts).
+// When it is present, wiring points at that file directly rather than at
+// the registry copy: no network, no npx cache, and — the actual problem —
+// no chance of a future upstream publish silently replacing the shim on
+// the next cache miss. `node` is a real executable everywhere, so the
+// cmd.exe wrapper is only needed for the npx fallback.
+const LOCAL_MCP = resolve(__dirname, "..", "dist", "standalone.mjs");
+const HAS_LOCAL_MCP = existsSync(LOCAL_MCP);
+
+const EXPECTED_MCP_COMMAND = HAS_LOCAL_MCP
+  ? { command: "node", args: [LOCAL_MCP] }
+  : process.platform === "win32"
     ? {
         command: process.env["ComSpec"] || process.env["COMSPEC"] || "cmd.exe",
-        args: ["/d", "/s", "/c", "npx", "-y", "@agentmemory/mcp"],
+        args: ["/d", "/s", "/c", "npx", "-y", `@agentmemory/mcp@${VERSION}`],
       }
     : {
         command: "npx",
-        args: ["-y", "@agentmemory/mcp"],
+        args: ["-y", `@agentmemory/mcp@${VERSION}`],
       };
+
+/** Identifies the wired entry regardless of which of the two forms it took. */
+const MCP_MARKER = HAS_LOCAL_MCP ? "standalone.mjs" : "@agentmemory/mcp";
 
 const EXPECTED_COPILOT_MCP_COMMAND = EXPECTED_MCP_COMMAND;
 
@@ -143,7 +157,7 @@ describe("agentmemory connect — claude-code adapter (mock filesystem)", () => 
     const config = JSON.parse(readFileSync(join(tmpHome, ".claude.json"), "utf-8"));
     expect(config.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND.command);
     expect(config.mcpServers.agentmemory.args).toEqual(EXPECTED_MCP_COMMAND.args);
-    expect(config.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
+    expect(config.mcpServers.agentmemory.args.join(" ")).toContain(MCP_MARKER);
     expect(config.mcpServers.other.command).toBe("x");
 
     const second = await a.install({ dryRun: false, force: false });
@@ -277,7 +291,7 @@ describe("agentmemory connect — opencode adapter (#872)", () => {
     const entry = config.mcp.agentmemory;
     expect(entry.type).toBe("local");
     expect(Array.isArray(entry.command)).toBe(true);
-    expect(entry.command).toContain("@agentmemory/mcp");
+    expect(entry.command.join(" ")).toContain(MCP_MARKER);
     expect(entry.enabled).toBe(true);
     expect(config.mcp.other.command).toEqual(["x"]);
 
@@ -516,21 +530,54 @@ describe("agentmemory connect — stub adapters log + return stub", () => {
 // node:fs/node:path/homedir); what was NOT portable was the shared MCP
 // command shape.
 describe("MCP command is Windows-safe on every adapter", () => {
-  it("wraps npx in an explicit cmd.exe on win32, bare npx elsewhere", async () => {
-    const { agentmemoryMcpCommand } = await import("../src/cli/connect/util.js");
+  it("prefers this build's own MCP server over the registry copy", async () => {
+    const { agentmemoryMcpCommand, localMcpServerPath } = await import(
+      "../src/cli/connect/util.js"
+    );
     const cmd = agentmemoryMcpCommand();
 
+    if (HAS_LOCAL_MCP) {
+      // Pointing at the shipped file means the wired agents run the same
+      // code as the installed package, with no network fetch and nothing
+      // an upstream publish can swap out underneath them.
+      expect(localMcpServerPath()).toBe(LOCAL_MCP);
+      expect(cmd.command).toBe("node");
+      expect(cmd.args).toEqual([LOCAL_MCP]);
+      // `node` is a real executable on Windows, unlike `npx`, so there is
+      // no shim to orphan and no cmd.exe wrapper needed.
+      expect(cmd.args.join(" ")).not.toContain("npx");
+    } else {
+      expect(cmd.args.join(" ")).toContain("@agentmemory/mcp@");
+    }
+  });
+
+  it("falls back to a VERSION-PINNED registry spec, never floating latest", async () => {
+    const { agentmemoryMcpCommand } = await import("../src/cli/connect/util.js");
+    const cmd = agentmemoryMcpCommand();
+    const argv = [cmd.command, ...cmd.args].join(" ");
+
+    // An unpinned "@agentmemory/mcp" resolves to whatever is latest at
+    // spawn time, so a future upstream publish would silently replace the
+    // shim on the next npx cache miss. Whichever branch we are on, the
+    // bare unpinned spec must never appear.
+    expect(argv).not.toMatch(/@agentmemory\/mcp(\s|$)/);
+  });
+
+  it("still wraps npx in an explicit cmd.exe when it has to use the registry", async () => {
+    const { agentmemoryMcpCommand } = await import("../src/cli/connect/util.js");
+    const cmd = agentmemoryMcpCommand();
+    if (HAS_LOCAL_MCP) return; // local path needs no shell wrapper
+
     if (process.platform === "win32") {
-      // The point is that cmd.exe is a DIRECT child. A bare "npx" is
-      // still run via cmd.exe by the client, but as an implicit
-      // grandchild that no Job Object owns — so the node process
-      // survives client exit and leaks a port-holding orphan.
+      // cmd.exe must be a DIRECT child. A bare "npx" is still run via
+      // cmd.exe by the client, but as an implicit grandchild that no Job
+      // Object owns — so the node process survives client exit and leaks
+      // a port-holding orphan.
       expect(cmd.command.toLowerCase()).toContain("cmd");
       expect(cmd.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
     } else {
       expect(cmd.command).toBe("npx");
     }
-    expect(cmd.args).toContain("@agentmemory/mcp");
   });
 
   it("uses the same command for the shared block and the Copilot block", async () => {

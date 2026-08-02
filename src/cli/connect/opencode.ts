@@ -5,6 +5,7 @@ import * as p from "@clack/prompts";
 import type { ConnectAdapter, ConnectOptions, ConnectResult } from "./types.js";
 import {
   agentmemoryMcpCommand,
+  isAgentmemoryMcpEntry,
   backupFile,
   logAlreadyWired,
   logBackup,
@@ -46,11 +47,12 @@ const OPENCODE_ENTRY = {
 type OpencodeConfig = Record<string, unknown>;
 type McpEntry = Record<string, unknown>;
 
-function entryMatches(entry: unknown): boolean {
-  if (!entry || typeof entry !== "object") return false;
-  const command = (entry as McpEntry)["command"];
-  return Array.isArray(command) && command.includes("@agentmemory/mcp");
-}
+// Delegates to the shared predicate, which understands opencode's
+// command-as-array shape as well as command+args. The previous private
+// copy matched a literal "@agentmemory/mcp", so it stopped recognising
+// its own output the moment the command shape changed and every install
+// failed verification.
+const entryMatches = isAgentmemoryMcpEntry;
 
 export const adapter: ConnectAdapter = {
   name: "opencode",

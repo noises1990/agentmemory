@@ -341,6 +341,12 @@
   },
   "hotPaths": [
     {
+      "path": "src\\cli\\connect\\continue.ts",
+      "accessCount": 11,
+      "lastAccessed": 1785689129784,
+      "type": "file"
+    },
+    {
       "path": "src\\config.ts",
       "accessCount": 10,
       "lastAccessed": 1785680991812,
@@ -353,21 +359,39 @@
       "type": "file"
     },
     {
+      "path": "test\\connect-new-agents.test.ts",
+      "accessCount": 8,
+      "lastAccessed": 1785688922599,
+      "type": "file"
+    },
+    {
       "path": "src\\functions\\diagnostics.ts",
       "accessCount": 7,
       "lastAccessed": 1785684048054,
       "type": "file"
     },
     {
-      "path": "test\\connect-new-agents.test.ts",
-      "accessCount": 6,
-      "lastAccessed": 1785681745764,
+      "path": "test\\connect-continue-yaml.test.ts",
+      "accessCount": 7,
+      "lastAccessed": 1785689084045,
       "type": "file"
     },
     {
       "path": "src\\providers\\rate-limit-monitor.ts",
       "accessCount": 6,
       "lastAccessed": 1785684118354,
+      "type": "file"
+    },
+    {
+      "path": "scripts\\windows\\start-agentmemory.ps1",
+      "accessCount": 6,
+      "lastAccessed": 1785687318792,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\util.ts",
+      "accessCount": 6,
+      "lastAccessed": 1785688863969,
       "type": "file"
     },
     {
@@ -389,21 +413,21 @@
       "type": "file"
     },
     {
+      "path": "test\\cli-connect.test.ts",
+      "accessCount": 4,
+      "lastAccessed": 1785688833257,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\opencode.ts",
+      "accessCount": 4,
+      "lastAccessed": 1785688878460,
+      "type": "file"
+    },
+    {
       "path": "src\\cli\\connect\\codex.ts",
       "accessCount": 3,
       "lastAccessed": 1785678531273,
-      "type": "file"
-    },
-    {
-      "path": "src\\cli\\connect\\continue.ts",
-      "accessCount": 3,
-      "lastAccessed": 1785681507351,
-      "type": "file"
-    },
-    {
-      "path": "test\\connect-continue-yaml.test.ts",
-      "accessCount": 3,
-      "lastAccessed": 1785681560594,
       "type": "file"
     },
     {
@@ -425,12 +449,6 @@
       "type": "file"
     },
     {
-      "path": "src\\cli\\connect\\util.ts",
-      "accessCount": 2,
-      "lastAccessed": 1785678243429,
-      "type": "file"
-    },
-    {
       "path": "src\\cli\\connect\\claude-code.ts",
       "accessCount": 2,
       "lastAccessed": 1785678253261,
@@ -446,18 +464,6 @@
       "path": "src\\cli\\connect\\index.ts",
       "accessCount": 2,
       "lastAccessed": 1785678304593,
-      "type": "file"
-    },
-    {
-      "path": "test\\cli-connect.test.ts",
-      "accessCount": 2,
-      "lastAccessed": 1785678368921,
-      "type": "file"
-    },
-    {
-      "path": "src\\cli\\connect\\opencode.ts",
-      "accessCount": 2,
-      "lastAccessed": 1785678557839,
       "type": "file"
     },
     {
@@ -498,8 +504,8 @@
     },
     {
       "path": "package.json",
-      "accessCount": 1,
-      "lastAccessed": 1785676445134,
+      "accessCount": 2,
+      "lastAccessed": 1785688752463,
       "type": "file"
     },
     {
@@ -542,6 +548,24 @@
       "path": "src\\hooks\\_project.ts",
       "accessCount": 1,
       "lastAccessed": 1785684263487,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\coroi\\.agentmemory\\scripts\\register-autostart.ps1",
+      "accessCount": 1,
+      "lastAccessed": 1785685096681,
+      "type": "file"
+    },
+    {
+      "path": "scripts\\windows\\register-autostart.ps1",
+      "accessCount": 1,
+      "lastAccessed": 1785687330511,
+      "type": "file"
+    },
+    {
+      "path": "scripts\\windows\\README.md",
+      "accessCount": 1,
+      "lastAccessed": 1785687350432,
       "type": "file"
     }
   ],

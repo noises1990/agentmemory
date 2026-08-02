@@ -14,7 +14,8 @@
     "./package.json": "./package.json"
   },
   "bin": {
-    "agentmemory": "dist/cli.mjs"
+    "agentmemory": "dist/cli.mjs",
+    "agentmemory-mcp": "dist/standalone.mjs"
   },
   "scripts": {
     "build": "tsdown && node scripts/copy-dist-assets.mjs",

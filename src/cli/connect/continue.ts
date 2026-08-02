@@ -3,8 +3,10 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import * as p from "@clack/prompts";
 import type { ConnectAdapter, ConnectOptions, ConnectResult } from "./types.js";
+import { VERSION } from "../../version.js";
 import {
   AGENTMEMORY_MCP_BLOCK,
+  isAgentmemoryMcpEntry,
   backupFile,
   logAlreadyWired,
   logBackup,
@@ -45,29 +47,61 @@ function buildEntry(): ContinueEntry {
   };
 }
 
+// Name check stays local (Continue keys entries by `name`), but the
+// command shape is delegated to the shared predicate. A private copy
+// matching a literal "@agentmemory/mcp" stopped recognising this
+// adapter's own output the moment the command shape changed, so every
+// install failed its post-write verification.
 function entryIsAgentmemory(entry: ContinueEntry | undefined): boolean {
   if (!entry) return false;
-  return entry.name === "agentmemory" && entry.args.includes("@agentmemory/mcp");
+  return entry.name === "agentmemory" && isAgentmemoryMcpEntry(entry);
+}
+
+/**
+ * Emit a YAML single-quoted scalar.
+ *
+ * Args can be absolute Windows paths. In a DOUBLE-quoted YAML scalar the
+ * backslash is an escape character, so "X:\Projects\...\dist\standalone.mjs"
+ * is both wrong and broken: \P and \a are valid escapes (paragraph
+ * separator, bell) and silently corrupt the path, while \d and \s are not
+ * valid escapes at all and fail the parse. Single-quoted scalars have no
+ * escape processing — the only special case is a literal quote, written
+ * by doubling it.
+ */
+function yamlSingleQuoted(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 // Minimal YAML emitter for the agentmemory entry. Quotes string values
 // that contain ${ ... } expansion to keep parsers happy. Only used when
 // creating a fresh config.yaml, or when replacing a config.yaml we can
 // prove we wrote ourselves — never when modifying a user-authored one.
+/**
+ * Arg quoting styles this emitter has used. Current output is always
+ * "single"; "double" is retained ONLY so files written by earlier
+ * versions are still recognised as self-generated. Drop it and every
+ * previously-wired user gets "manual install required" on a file we
+ * wrote ourselves.
+ */
+type ArgQuoting = "single" | "double";
+
 function renderFreshYaml(
   command: string = AGENTMEMORY_MCP_BLOCK.command,
   args: readonly string[] = AGENTMEMORY_MCP_BLOCK.args,
+  quoting: ArgQuoting = "single",
 ): string {
   const e = buildEntry();
   const envLines = Object.entries(e.env ?? {})
     .map(([k, v]) => `      ${k}: "${v}"`)
     .join("\n");
+  const renderArg = (a: string) =>
+    quoting === "single" ? yamlSingleQuoted(a) : `"${a}"`;
   return [
     "mcpServers:",
     `  - name: ${e.name}`,
     `    command: ${command}`,
     "    args:",
-    ...args.map((a) => `      - "${a}"`),
+    ...args.map((a) => `      - ${renderArg(a)}`),
     "    env:",
     envLines,
     "",
@@ -84,9 +118,17 @@ function renderFreshYaml(
 // the MCP client spawns an implicit cmd.exe grandchild that belongs to no
 // Job Object and survives client exit. Users left on that shape accumulate
 // orphaned node processes holding the port.
+const COMSPEC = process.env["ComSpec"] || process.env["COMSPEC"] || "cmd.exe";
+
 const GENERATED_SHAPES: ReadonlyArray<{ command: string; args: readonly string[] }> = [
+  // Current: this build's own MCP server, invoked directly.
   { command: AGENTMEMORY_MCP_BLOCK.command, args: AGENTMEMORY_MCP_BLOCK.args },
+  // Registry fallback, pinned and unpinned.
+  { command: "npx", args: ["-y", `@agentmemory/mcp@${VERSION}`] },
   { command: "npx", args: ["-y", "@agentmemory/mcp"] },
+  // Windows cmd.exe wrapper around each of those.
+  { command: COMSPEC, args: ["/d", "/s", "/c", "npx", "-y", `@agentmemory/mcp@${VERSION}`] },
+  { command: COMSPEC, args: ["/d", "/s", "/c", "npx", "-y", "@agentmemory/mcp"] },
 ];
 
 function normalizeYaml(text: string): string {
@@ -101,9 +143,17 @@ function normalizeYaml(text: string): string {
  */
 function matchGeneratedShape(content: string): { isCurrent: boolean } | null {
   const actual = normalizeYaml(content);
+  const QUOTINGS: ArgQuoting[] = ["single", "double"];
   for (const [i, shape] of GENERATED_SHAPES.entries()) {
-    if (normalizeYaml(renderFreshYaml(shape.command, shape.args)) === actual) {
-      return { isCurrent: i === 0 };
+    for (const quoting of QUOTINGS) {
+      const rendered = normalizeYaml(
+        renderFreshYaml(shape.command, shape.args, quoting),
+      );
+      if (rendered === actual) {
+        // Only the current command shape in the current quoting counts as
+        // up to date; anything else is ours but stale, and gets rewritten.
+        return { isCurrent: i === 0 && quoting === "single" };
+      }
     }
   }
   return null;

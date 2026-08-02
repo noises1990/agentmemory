@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, mkdirSync, rmSync, readFileSync, existsSync } from "node:fs";
 import { tmpdir, platform } from "node:os";
+import { resolve } from "node:path";
 import { join } from "node:path";
 
 // Connect adapters for Qwen Code, Antigravity, and Kiro. Each writes
@@ -8,14 +9,25 @@ import { join } from "node:path";
 // the agent's documented config path.
 
 // Spelled out rather than imported from the adapter so the expectation is
-// independent of the code under test. On Windows a bare `npx` has no .exe,
-// only npx.cmd, so the MCP client spawns an implicit cmd.exe grandchild
-// that no Job Object owns and that survives client exit; spawning cmd.exe
-// explicitly keeps the node process a direct, reapable child.
-const EXPECTED_MCP_COMMAND =
-  process.platform === "win32"
+// independent of the code under test.
+//
+// This build ships its own MCP server, so wiring points `node` at that
+// file: no registry fetch, and nothing an upstream publish can swap out.
+// Only when that file is absent do we fall back to npx — and on Windows a
+// bare `npx` has no .exe, only npx.cmd, so the client spawns an implicit
+// cmd.exe grandchild that no Job Object owns and that survives client
+// exit; spawning cmd.exe explicitly keeps it a direct, reapable child.
+const LOCAL_MCP = resolve(__dirname, "..", "dist", "standalone.mjs");
+const HAS_LOCAL_MCP = existsSync(LOCAL_MCP);
+
+const EXPECTED_MCP_COMMAND = HAS_LOCAL_MCP
+  ? "node"
+  : process.platform === "win32"
     ? process.env["ComSpec"] || process.env["COMSPEC"] || "cmd.exe"
     : "npx";
+
+/** Substring identifying the wired entry in whichever form it took. */
+const MCP_MARKER = HAS_LOCAL_MCP ? "standalone.mjs" : "@agentmemory/mcp";
 
 function freshHome(): string {
   return mkdtempSync(join(tmpdir(), "am-connect-"));
@@ -75,7 +87,7 @@ describe("connect: Qwen Code", () => {
       readFileSync(join(home, ".qwen", "settings.json"), "utf-8"),
     );
     expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
-    expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
+    expect(cfg.mcpServers.agentmemory.args.join(" ")).toContain(MCP_MARKER);
     expect(cfg.mcpServers.agentmemory.env.AGENTMEMORY_URL).toMatch(
       /\$\{AGENTMEMORY_URL:-/,
     );
@@ -146,7 +158,7 @@ describe("connect: Kiro", () => {
     expect(existsSync(cfgPath)).toBe(true);
     const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
     expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
-    expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
+    expect(cfg.mcpServers.agentmemory.args.join(" ")).toContain(MCP_MARKER);
   });
 });
 
@@ -178,7 +190,7 @@ describe("connect: Warp", () => {
     expect(existsSync(cfgPath)).toBe(true);
     const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
     expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
-    expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
+    expect(cfg.mcpServers.agentmemory.args.join(" ")).toContain(MCP_MARKER);
     expect(cfg.mcpServers.agentmemory.env.AGENTMEMORY_URL).toMatch(
       /\$\{AGENTMEMORY_URL:-/,
     );
@@ -213,7 +225,7 @@ describe("connect: Cline", () => {
       readFileSync(join(home, ".cline", "mcp.json"), "utf-8"),
     );
     expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
-    expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
+    expect(cfg.mcpServers.agentmemory.args.join(" ")).toContain(MCP_MARKER);
   });
 });
 
@@ -245,7 +257,7 @@ describe("connect: Droid (Factory.ai)", () => {
       readFileSync(join(home, ".factory", "mcp.json"), "utf-8"),
     );
     expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
-    expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
+    expect(cfg.mcpServers.agentmemory.args.join(" ")).toContain(MCP_MARKER);
     // Droid requires `type` per its documented schema
     expect(cfg.mcpServers.agentmemory.type).toBe("stdio");
   });
@@ -279,7 +291,7 @@ describe("connect: Zed", () => {
       readFileSync(join(home, ".config", "zed", "settings.json"), "utf-8"),
     );
     expect(cfg.context_servers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
-    expect(cfg.context_servers.agentmemory.args).toContain("@agentmemory/mcp");
+    expect(cfg.context_servers.agentmemory.args.join(" ")).toContain(MCP_MARKER);
     expect(cfg.mcpServers).toBeUndefined();
   });
 });
@@ -314,7 +326,7 @@ describe("connect: Continue.dev", () => {
     const yaml = readFileSync(yamlPath, "utf-8");
     expect(yaml).toContain("mcpServers:");
     expect(yaml).toContain("name: agentmemory");
-    expect(yaml).toContain("@agentmemory/mcp");
+    expect(yaml).toContain(MCP_MARKER);
     expect(yaml).toContain("AGENTMEMORY_URL");
   });
 
@@ -336,7 +348,7 @@ describe("connect: Continue.dev", () => {
       (s: { name: string }) => s.name === "agentmemory",
     );
     expect(entry.command).toBe(EXPECTED_MCP_COMMAND);
-    expect(entry.args).toContain("@agentmemory/mcp");
+    expect(entry.args.join(" ")).toContain(MCP_MARKER);
   });
 
   it("returns stub when config.yaml already exists (refuses silent yaml mutation)", async () => {

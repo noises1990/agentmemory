@@ -1,7 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+
+// Wiring prefers the MCP server this build ships over the registry copy.
+const LOCAL_MCP = resolve(__dirname, "..", "dist", "standalone.mjs");
+const HAS_LOCAL_MCP = existsSync(LOCAL_MCP);
 
 // The Continue adapter refuses to touch an existing config.yaml because
 // there is no YAML parser in the tree and rewriting would drop comments
@@ -65,7 +76,9 @@ describe("connect: Continue config.yaml", () => {
     const adapter = await loadAdapter();
     const result = await adapter.install({ dryRun: false, force: false });
     expect(result.kind).toBe("installed");
-    expect(readYaml()).toContain("@agentmemory/mcp");
+    expect(readYaml()).toContain(
+      HAS_LOCAL_MCP ? "standalone.mjs" : "@agentmemory/mcp",
+    );
   });
 
   it("upgrades a config.yaml it wrote itself to the current command shape", async () => {
@@ -76,12 +89,20 @@ describe("connect: Continue config.yaml", () => {
 
     const after = readYaml();
     expect(after).not.toBe(LEGACY_YAML);
-    expect(after).toContain("@agentmemory/mcp");
-    if (process.platform === "win32") {
-      // The whole point of the upgrade: get off bare npx, which on Windows
-      // resolves to npx.cmd and leaks an unparented cmd.exe grandchild.
+
+    if (HAS_LOCAL_MCP) {
+      // The upgrade now also gets off the registry copy entirely: the
+      // entry points at the MCP server this build ships, so no fetch and
+      // no upstream publish can change what the agent runs.
+      expect(after).toContain("standalone.mjs");
+      expect(after).toMatch(/command: node/);
+      expect(after).not.toContain("npx");
+    } else if (process.platform === "win32") {
+      // Fallback path: get off bare npx, which on Windows resolves to
+      // npx.cmd and leaks an unparented cmd.exe grandchild.
       expect(after).toMatch(/command: .*cmd\.exe/i);
       expect(after).toContain('- "/d"');
+      expect(after).toContain("@agentmemory/mcp@");
     }
   });
 
@@ -149,6 +170,46 @@ mcpServers:
     const adapter = await loadAdapter();
     const result = await adapter.install({ dryRun: false, force: false });
     expect(result.kind).toBe("installed");
+  });
+
+  // A double-quoted YAML scalar processes backslash escapes, so a Windows
+  // path like X:\Projects\...\dist\standalone.mjs is both corrupted (\P and
+  // \a are VALID escapes — paragraph separator and bell) and unparseable
+  // (\d and \s are not escapes at all). Single-quoted scalars have no
+  // escape processing.
+  it("emits args as single-quoted YAML so Windows paths survive", async () => {
+    mkdirSync(join(home, ".continue"), { recursive: true });
+    const adapter = await loadAdapter();
+    await adapter.install({ dryRun: false, force: false });
+
+    const yaml = readYaml();
+    const argLines = yaml
+      .split("\n")
+      .filter((l) => /^\s+- /.test(l))
+      .map((l) => l.trim().slice(2));
+
+    expect(argLines.length).toBeGreaterThan(0);
+    for (const arg of argLines) {
+      if (!arg.includes("\\")) continue;
+      expect(arg.startsWith("'"), `arg must be single-quoted: ${arg}`).toBe(true);
+      expect(arg.endsWith("'")).toBe(true);
+      // The backslashes must still be there, unescaped and uncollapsed.
+      expect(arg).toContain("\\");
+      expect(arg).not.toContain('"');
+    }
+  });
+
+  it("round-trips its own output so a rewrite is not a rewrite", async () => {
+    mkdirSync(join(home, ".continue"), { recursive: true });
+    const adapter = await loadAdapter();
+    await adapter.install({ dryRun: false, force: false });
+    const first = readYaml();
+
+    // If the emitter and the recogniser disagree, connect reports
+    // "manual install required" forever on a file it wrote itself.
+    const second = await adapter.install({ dryRun: false, force: false });
+    expect(second.kind).toBe("already-wired");
+    expect(readYaml()).toBe(first);
   });
 
   it("writes nothing on --dry-run", async () => {
