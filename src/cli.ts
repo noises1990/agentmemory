@@ -1588,7 +1588,46 @@ function findLatestDebugLog(debugDir: string): string | undefined {
   return undefined;
 }
 
+/**
+ * Detect hooks installed by `connect claude-code --with-hooks`, which
+ * writes absolute script paths straight into ~/.claude/settings.json
+ * (the user-scope workaround for issue #508).
+ *
+ * These never appear in the debug log the plugin check greps: that log
+ * line is emitted only for marketplace-installed plugins. Without this,
+ * doctor reported "hooks not registered" indefinitely for the install
+ * path connect itself recommends -- while the hooks were running fine.
+ * Reading settings.json is also a direct check rather than an inference
+ * from a log that may not exist yet.
+ */
+function userScopeHooksInstalled(): boolean {
+  const settingsPath = join(homedir(), ".claude", "settings.json");
+  if (!existsSync(settingsPath)) return false;
+  try {
+    const parsed = JSON.parse(readFileSync(settingsPath, "utf8")) as {
+      hooks?: Record<string, Array<{ hooks?: Array<{ command?: string }> }>>;
+    };
+    const entries = Object.values(parsed.hooks ?? {}).flat();
+    return entries.some((entry) =>
+      (entry?.hooks ?? []).some((h) =>
+        /agentmemory[\\/](?:.*[\\/])?plugin[\\/]scripts[\\/]/i.test(
+          h?.command ?? "",
+        ),
+      ),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function checkClaudeCodeHooks(): CCHooksCheck {
+  if (userScopeHooksInstalled()) {
+    return {
+      state: "loaded",
+      manifestPath: join(homedir(), ".claude", "settings.json"),
+    };
+  }
+
   const debugDir = join(homedir(), ".claude", "debug");
   if (!existsSync(debugDir)) return { state: "no-cc-dir" };
 
@@ -1649,7 +1688,14 @@ function buildDoctorEffects(): DoctorEffects {
       if (pid === null) return null;
       return pidAlive(pid);
     },
-    findIiiBinary: () => whichBinary("iii"),
+    // PATH first, then the same fallback locations the runtime resolves
+    // from. agentmemory installs the engine privately under
+    // ~/.agentmemory/bin/ and deliberately does NOT put it on PATH, so a
+    // PATH-only probe reported "iii not on PATH" for a perfectly healthy
+    // install -- and offered to reinstall an engine that was already
+    // there and already running.
+    findIiiBinary: () =>
+      whichBinary("iii") ?? fallbackIiiPaths().find((p) => existsSync(p)) ?? null,
     localBinIiiPath: () => privateIiiPath(),
     iiiBinaryVersion: (binPath: string) => iiiBinVersion(binPath),
     viewerReachable: async (timeoutMs = 2000) => {
