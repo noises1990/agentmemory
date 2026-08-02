@@ -3,6 +3,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
+import { resolveProject } from "../src/hooks/_project.js";
 
 const repoRoot = resolve(__dirname, "..");
 const pluginRoot = join(repoRoot, "plugin");
@@ -295,7 +296,7 @@ describe("Copilot hook scripts", () => {
     expect(result.requests[0]?.path).toBe("/agentmemory/session/start");
     expect(result.requests[0]?.body).toMatchObject({
       sessionId: "copilot-session",
-      project: "C:\\repo",
+      project: resolveProject("C:\\repo"),
       cwd: "C:\\repo",
     });
   });
