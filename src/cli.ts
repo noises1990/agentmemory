@@ -1838,6 +1838,29 @@ async function passiveServerChecks(): Promise<DoctorCheck[]> {
   );
   const graphHas = graphNodeCount > 0;
 
+  // Rate limiting is invisible everywhere else: compression falls back to
+  // synthetic summaries and embeddings are dropped silently, so the only
+  // symptom is that recall slowly gets worse. Surface it here, where
+  // people already come to ask "is this thing healthy".
+  const rl = health?.rateLimit as
+    | { limited?: number; ratio?: number; scope?: string; windowMs?: number }
+    | undefined;
+  const rateLimited = Number(rl?.limited ?? 0);
+  if (rateLimited > 0) {
+    const mins = Math.round(Number(rl?.windowMs ?? 900_000) / 60_000);
+    const pct = Math.round(Number(rl?.ratio ?? 0) * 100);
+    checks.push({
+      name: "Provider rate limiting",
+      ok: false,
+      hint:
+        `${rateLimited} call(s) rejected with HTTP 429 in the last ${mins}m (~${pct}%). ` +
+        (rl?.scope === "gateway"
+          ? "Raise or remove the request limit on your AI Gateway — this is your own rule, not an account quota."
+          : "Upstream account quota — reduce request volume or raise the plan limit.") +
+        " Summaries fall back to synthetic and some embeddings are being dropped.",
+    });
+  }
+
   checks.push(
     {
       name: "Health status",

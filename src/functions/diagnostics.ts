@@ -4,6 +4,7 @@ import { KV } from "../state/schema.js";
 import { withKeyedLock } from "../state/keyed-mutex.js";
 import { recordAudit } from "./audit.js";
 import { getSearchIndex, getVectorIndex } from "./search.js";
+import { getRateLimitStats } from "../providers/rate-limit-monitor.js";
 import type {
   Action,
   ActionEdge,
@@ -25,6 +26,7 @@ import type {
 } from "../types.js";
 
 const ALL_CATEGORIES = [
+  "provider",
   "retrieval",
   "actions",
   "leases",
@@ -54,6 +56,36 @@ export function registerDiagnosticsFunction(sdk: ISdk, kv: StateKV): void {
 
       const checks: DiagnosticCheck[] = [];
       const now = Date.now();
+
+      // Provider rate limiting. Stays silent until a 429 actually lands,
+      // so a healthy install says nothing. Once it does fire it names the
+      // dial to turn, because the symptoms (worse summaries, patchy
+      // semantic recall) point nowhere near the cause.
+      if (categories.includes("provider")) {
+        const rl = getRateLimitStats();
+        if (rl.limited > 0) {
+          const mins = Math.round(rl.windowMs / 60_000);
+          const pct = Math.round(rl.ratio * 100);
+          const where =
+            rl.scope === "gateway"
+              ? "This is a rule on your own AI Gateway, not an account quota — raise or remove the request limit in the gateway's settings."
+              : "This is an upstream account quota, not a gateway rule — reduce request volume or raise the plan limit.";
+          checks.push({
+            name: "provider-rate-limited",
+            category: "provider",
+            // Any sustained rejection is worth acting on, but a third of
+            // calls failing means the circuit breaker is tripping too,
+            // which takes down graph extraction and summaries with it.
+            status: rl.ratio >= 0.1 ? "fail" : "warn",
+            fixable: false,
+            message:
+              `${rl.limited} provider call(s) rejected with HTTP 429 in the last ${mins}m (~${pct}% of calls). ` +
+              `Rate limiting does not reduce spend here — it converts it into silent failures: ` +
+              `compression falls back to synthetic summaries and embeddings are dropped, degrading semantic recall. ` +
+              where,
+          });
+        }
+      }
 
       // Retrieval health. The vector index is written through
       // vectorIndexAddGuarded, which SOFT-FAILS by design so a downed

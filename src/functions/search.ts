@@ -9,6 +9,7 @@ import { memoryToObservation } from '../state/memory-utils.js'
 import { recordAccessBatch } from './access-tracker.js'
 import { logger } from "../logger.js";
 import { getAgentId, isAgentScopeIsolated } from "../config.js";
+import { recordProviderCall } from "../providers/rate-limit-monitor.js";
 
 let index: SearchIndex | null = null
 let vectorIndex: VectorIndex | null = null
@@ -113,8 +114,15 @@ export async function vectorIndexAddGuarded(
       return false
     }
     vi.add(id, sessionId, embedding)
+    recordProviderCall()
     return true
   } catch (err) {
+    // Embeddings do not go through ResilientProvider, so this is the only
+    // place an embedding 429 is visible. Soft-failing here is deliberate
+    // (a downed embedder must not break the save path) but it is exactly
+    // what makes rate limiting invisible: the observation saves, BM25
+    // keeps working, and semantic recall quietly degrades.
+    recordProviderCall(err)
     logger.warn("vector-index add: embed failed — skipping", {
       kind: context.kind,
       id: context.logId,

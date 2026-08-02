@@ -5,6 +5,10 @@ vi.mock("../src/logger.js", () => ({
 }));
 
 import { registerDiagnosticsFunction } from "../src/functions/diagnostics.js";
+import {
+  recordProviderCall,
+  resetRateLimitStats,
+} from "../src/providers/rate-limit-monitor.js";
 import type {
   Action,
   ActionEdge,
@@ -509,6 +513,47 @@ describe("Diagnostics Functions", () => {
       };
 
       expect(result.checks.some((c) => c.category === "retrieval")).toBe(false);
+    });
+
+    it("says nothing about rate limiting until a 429 lands", async () => {
+      resetRateLimitStats();
+      const result = (await sdk.trigger("mem::diagnose", {})) as {
+        checks: DiagnosticCheck[];
+      };
+
+      expect(result.checks.some((c) => c.category === "provider")).toBe(false);
+    });
+
+    it("reports rate limiting and names the dial to turn", async () => {
+      resetRateLimitStats();
+      recordProviderCall(
+        new Error('Cloudflare API error (429): {"name":"AiGatewayError"}'),
+      );
+
+      const result = (await sdk.trigger("mem::diagnose", {})) as {
+        checks: DiagnosticCheck[];
+      };
+      const check = result.checks.find((c) => c.category === "provider");
+      resetRateLimitStats();
+
+      expect(check).toBeDefined();
+      expect(check!.name).toBe("provider-rate-limited");
+      // The whole point is that the symptoms point nowhere near the cause,
+      // so the message has to say where to go.
+      expect(check!.message).toMatch(/AI Gateway/i);
+      expect(check!.message).toMatch(/429/);
+    });
+
+    it("keeps the rate-limit check inside the categories filter", async () => {
+      resetRateLimitStats();
+      recordProviderCall(new Error("429 rate limited"));
+
+      const result = (await sdk.trigger("mem::diagnose", {
+        categories: ["signals"],
+      })) as { checks: DiagnosticCheck[] };
+      resetRateLimitStats();
+
+      expect(result.checks.some((c) => c.category === "provider")).toBe(false);
     });
   });
 

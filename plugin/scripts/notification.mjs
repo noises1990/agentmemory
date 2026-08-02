@@ -1,22 +1,42 @@
 #!/usr/bin/env node
-import { execSync } from "node:child_process";
-import { basename } from "node:path";
+import { existsSync } from "node:fs";
+import { basename, dirname, resolve } from "node:path";
 //#region src/hooks/_project.ts
+/**
+* Find the repository root by walking up for a `.git` entry.
+*
+* This replaced `git rev-parse --show-toplevel`, which was spawned with a
+* 500ms timeout on EVERY hook invocation — and hooks run on every tool
+* call. Process spawn on Windows costs a large fraction of that budget
+* before git does any work, so on a loaded machine the call timed out,
+* the catch swallowed it, and resolution silently fell through to
+* basename(cwd). For a nested cwd that means observations were filed
+* under "hooks" instead of "agentmemory", fragmenting a project's memory
+* across directory names under load — the exact condition where you are
+* least likely to notice.
+*
+* The walk answers the same question with a few stat() calls and no
+* subprocess, so there is no timeout left to lose. `.git` is a directory
+* in a normal clone and a file in a worktree or submodule; either way the
+* directory containing it is the toplevel, which is what git reports.
+*/
+function findRepoRoot(startDir) {
+	let dir = resolve(startDir);
+	for (let i = 0; i < 64; i++) {
+		if (existsSync(resolve(dir, ".git"))) return dir;
+		const parent = dirname(dir);
+		if (parent === dir) break;
+		dir = parent;
+	}
+	return null;
+}
 function resolveProject(cwd) {
 	const explicit = process.env["AGENTMEMORY_PROJECT_NAME"];
 	if (explicit && explicit.trim()) return explicit.trim();
 	const dir = cwd && cwd.trim() ? cwd : process.cwd();
 	try {
-		const top = execSync("git rev-parse --show-toplevel", {
-			cwd: dir,
-			stdio: [
-				"ignore",
-				"pipe",
-				"ignore"
-			],
-			timeout: 500
-		}).toString().trim();
-		if (top) return basename(top);
+		const root = findRepoRoot(dir);
+		if (root) return basename(root);
 	} catch {}
 	return basename(dir);
 }

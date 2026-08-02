@@ -1,0 +1,7 @@
+{
+  "tool_name": "Bash",
+  "tool_input_preview": "{\"command\":\"sleep 6; curl -s -m 20 -X POST http://localhost:3111/agentmemory/diagnose -H \\\"Content-Type: application/json\\\" -d '{}' | node -e \\\"let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{...",
+  "error": "Exit code 1\n<anonymous_script>:1\r\n\r\n\r\nSyntaxError: Unexpected end of JSON input\r\n    at JSON.parse (<anonymous>)\r\n    at Socket.<anonymous> ([eval]:1:70)\r\n    at Socket.emit (node:events:531:35)\r\n    at endReadableNT (node:internal/streams/readable:1698:12)\r\n    at process.processTicksAndRejections (node:internal/process/task_queues:89:21)\r\n\r\nNode.js v22.22.2",
+  "timestamp": "2026-08-02T14:58:51.437Z",
+  "retry_count": 1
+}

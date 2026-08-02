@@ -1,0 +1,549 @@
+{
+  "version": "1.0.0",
+  "lastScanned": 1785673402228,
+  "projectRoot": "X:\\Projects\\agentmemory",
+  "techStack": {
+    "languages": [
+      {
+        "name": "JavaScript/TypeScript",
+        "version": ">=20.0.0",
+        "confidence": "high",
+        "markers": [
+          "package.json"
+        ]
+      },
+      {
+        "name": "TypeScript",
+        "version": null,
+        "confidence": "high",
+        "markers": [
+          "tsconfig.json"
+        ]
+      }
+    ],
+    "frameworks": [
+      {
+        "name": "vitest",
+        "version": "4.1.6",
+        "category": "testing"
+      }
+    ],
+    "packageManager": "npm",
+    "runtime": "Node.js 20.0.0"
+  },
+  "build": {
+    "buildCommand": "npm run build",
+    "testCommand": "npm test",
+    "lintCommand": null,
+    "devCommand": "npm run dev",
+    "scripts": {
+      "build": "tsdown && (cp iii-config.yaml dist/ 2>/dev/null || true) && (cp iii-config.docker.yaml dist/ 2>/dev/null || true) && (cp docker-compose.yml dist/ 2>/dev/null || true) && (cp .env.example dist/ 2>/dev/null || true) && mkdir -p dist/viewer && cp src/viewer/index.html dist/viewer/ && cp src/viewer/favicon.svg dist/viewer/",
+      "dev": "tsx src/index.ts",
+      "start": "node dist/cli.mjs",
+      "migrate": "node dist/functions/migrate.js",
+      "test": "vitest run --exclude test/integration.test.ts",
+      "test:watch": "vitest --exclude test/integration.test.ts",
+      "test:integration": "vitest run test/integration.test.ts",
+      "test:all": "vitest run",
+      "skills:gen": "tsx scripts/skills/generate.ts",
+      "skills:check": "tsx scripts/skills/generate.ts --check && tsx scripts/skills/check.ts",
+      "bench:load": "node --import tsx benchmark/load-100k.ts",
+      "eval:longmemeval": "tsx eval/runner/longmemeval.ts",
+      "eval:coding-life": "tsx eval/runner/coding-life.ts"
+    }
+  },
+  "conventions": {
+    "namingStyle": "camelCase",
+    "importStyle": "ES modules",
+    "testPattern": "*.test.ts",
+    "fileOrganization": null
+  },
+  "structure": {
+    "isMonorepo": false,
+    "workspaces": [],
+    "mainDirectories": [
+      "assets",
+      "docs",
+      "examples",
+      "scripts",
+      "src",
+      "test"
+    ],
+    "gitBranches": {
+      "defaultBranch": "main",
+      "branchingStrategy": null
+    }
+  },
+  "customNotes": [],
+  "directoryMap": {
+    "assets": {
+      "path": "assets",
+      "purpose": "Static assets",
+      "fileCount": 5,
+      "lastAccessed": 1785673402192,
+      "keyFiles": [
+        "banner.png",
+        "demo.gif",
+        "demo.mp4",
+        "icon.svg",
+        "logo.svg"
+      ]
+    },
+    "benchmark": {
+      "path": "benchmark",
+      "purpose": null,
+      "fileCount": 12,
+      "lastAccessed": 1785673402193,
+      "keyFiles": [
+        "COMPARISON.md",
+        "dataset.ts",
+        "load-100k.ts",
+        "longmemeval-bench.ts",
+        "LONGMEMEVAL.md"
+      ]
+    },
+    "data": {
+      "path": "data",
+      "purpose": "Data files",
+      "fileCount": 0,
+      "lastAccessed": 1785673402206,
+      "keyFiles": []
+    },
+    "deploy": {
+      "path": "deploy",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1785673402206,
+      "keyFiles": [
+        "README.md"
+      ]
+    },
+    "dist": {
+      "path": "dist",
+      "purpose": "Distribution/build output",
+      "fileCount": 35,
+      "lastAccessed": 1785673402207,
+      "keyFiles": [
+        "cli.d.mts",
+        "cli.d.mts.map",
+        "cli.mjs",
+        "cli.mjs.map",
+        "config-DixhZWmB.mjs"
+      ]
+    },
+    "docs": {
+      "path": "docs",
+      "purpose": "Documentation",
+      "fileCount": 0,
+      "lastAccessed": 1785673402208,
+      "keyFiles": []
+    },
+    "eval": {
+      "path": "eval",
+      "purpose": null,
+      "fileCount": 1,
+      "lastAccessed": 1785673402208,
+      "keyFiles": [
+        "README.md"
+      ]
+    },
+    "examples": {
+      "path": "examples",
+      "purpose": "Example code",
+      "fileCount": 0,
+      "lastAccessed": 1785673402210,
+      "keyFiles": []
+    },
+    "integrations": {
+      "path": "integrations",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1785673402211,
+      "keyFiles": []
+    },
+    "packages": {
+      "path": "packages",
+      "purpose": null,
+      "fileCount": 0,
+      "lastAccessed": 1785673402212,
+      "keyFiles": []
+    },
+    "plugin": {
+      "path": "plugin",
+      "purpose": null,
+      "fileCount": 3,
+      "lastAccessed": 1785673402212,
+      "keyFiles": [
+        "plugin.json"
+      ]
+    },
+    "READMEs": {
+      "path": "READMEs",
+      "purpose": null,
+      "fileCount": 11,
+      "lastAccessed": 1785673402213,
+      "keyFiles": [
+        "README.de-DE.md",
+        "README.es-ES.md",
+        "README.fr-FR.md",
+        "README.hi-IN.md",
+        "README.ja-JP.md"
+      ]
+    },
+    "scripts": {
+      "path": "scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 2,
+      "lastAccessed": 1785673402213,
+      "keyFiles": [
+        "backfill-imported-sessions.sh",
+        "check-env-example.mjs"
+      ]
+    },
+    "src": {
+      "path": "src",
+      "purpose": "Source code",
+      "fileCount": 8,
+      "lastAccessed": 1785673402214,
+      "keyFiles": [
+        "auth.ts",
+        "cli.ts",
+        "config.ts",
+        "index.ts",
+        "logger.ts"
+      ]
+    },
+    "test": {
+      "path": "test",
+      "purpose": "Test files",
+      "fileCount": 131,
+      "lastAccessed": 1785673402214,
+      "keyFiles": [
+        "access-tracker.test.ts",
+        "actions.test.ts",
+        "agent-id-scope.test.ts",
+        "agent-isolation-search.test.ts",
+        "agent-sdk-provider.test.ts"
+      ]
+    },
+    "website": {
+      "path": "website",
+      "purpose": null,
+      "fileCount": 7,
+      "lastAccessed": 1785673402215,
+      "keyFiles": [
+        "next-env.d.ts",
+        "next.config.ts",
+        "package.json",
+        "README.md",
+        "tsconfig.json"
+      ]
+    },
+    "benchmark\\data": {
+      "path": "benchmark\\data",
+      "purpose": "Data files",
+      "fileCount": 3,
+      "lastAccessed": 1785673402215,
+      "keyFiles": [
+        "longmemeval_results_bm25.json",
+        "longmemeval_results_hybrid.json"
+      ]
+    },
+    "benchmark\\lib": {
+      "path": "benchmark\\lib",
+      "purpose": "Library code",
+      "fileCount": 1,
+      "lastAccessed": 1785673402216,
+      "keyFiles": [
+        "percentiles.ts"
+      ]
+    },
+    "eval\\data": {
+      "path": "eval\\data",
+      "purpose": "Data files",
+      "fileCount": 0,
+      "lastAccessed": 1785673402219,
+      "keyFiles": []
+    },
+    "eval\\scripts": {
+      "path": "eval\\scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1785673402219,
+      "keyFiles": [
+        "sandbox.sh"
+      ]
+    },
+    "plugin\\scripts": {
+      "path": "plugin\\scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 40,
+      "lastAccessed": 1785673402220,
+      "keyFiles": [
+        "diagnostics.mjs",
+        "notification.d.mts",
+        "notification.mjs"
+      ]
+    },
+    "website\\app": {
+      "path": "website\\app",
+      "purpose": "Application code",
+      "fileCount": 5,
+      "lastAccessed": 1785673402224,
+      "keyFiles": [
+        "globals.css",
+        "layout.tsx",
+        "opengraph-image.tsx"
+      ]
+    },
+    "website\\components": {
+      "path": "website\\components",
+      "purpose": "UI components",
+      "fileCount": 37,
+      "lastAccessed": 1785673402225,
+      "keyFiles": [
+        "AgentInstall.module.css",
+        "AgentInstall.tsx",
+        "Agents.module.css"
+      ]
+    },
+    "website\\lib": {
+      "path": "website\\lib",
+      "purpose": "Library code",
+      "fileCount": 4,
+      "lastAccessed": 1785673402226,
+      "keyFiles": [
+        "format.ts",
+        "generated-meta.json",
+        "github.ts"
+      ]
+    },
+    "website\\public": {
+      "path": "website\\public",
+      "purpose": "Public files",
+      "fileCount": 6,
+      "lastAccessed": 1785673402227,
+      "keyFiles": [
+        "dashboard.png",
+        "demo.gif",
+        "icon.svg"
+      ]
+    },
+    "website\\scripts": {
+      "path": "website\\scripts",
+      "purpose": "Build/utility scripts",
+      "fileCount": 1,
+      "lastAccessed": 1785673402228,
+      "keyFiles": [
+        "gen-meta.mjs"
+      ]
+    }
+  },
+  "hotPaths": [
+    {
+      "path": "src\\config.ts",
+      "accessCount": 10,
+      "lastAccessed": 1785680991812,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli.ts",
+      "accessCount": 9,
+      "lastAccessed": 1785684092183,
+      "type": "file"
+    },
+    {
+      "path": "src\\functions\\diagnostics.ts",
+      "accessCount": 7,
+      "lastAccessed": 1785684048054,
+      "type": "file"
+    },
+    {
+      "path": "test\\connect-new-agents.test.ts",
+      "accessCount": 6,
+      "lastAccessed": 1785681745764,
+      "type": "file"
+    },
+    {
+      "path": "src\\providers\\rate-limit-monitor.ts",
+      "accessCount": 6,
+      "lastAccessed": 1785684118354,
+      "type": "file"
+    },
+    {
+      "path": "test\\slots-flag-gate.test.ts",
+      "accessCount": 4,
+      "lastAccessed": 1785681961670,
+      "type": "file"
+    },
+    {
+      "path": "test\\embedding-provider.test.ts",
+      "accessCount": 4,
+      "lastAccessed": 1785682029809,
+      "type": "file"
+    },
+    {
+      "path": "test\\obsidian-export.test.ts",
+      "accessCount": 4,
+      "lastAccessed": 1785682138197,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\codex.ts",
+      "accessCount": 3,
+      "lastAccessed": 1785678531273,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\continue.ts",
+      "accessCount": 3,
+      "lastAccessed": 1785681507351,
+      "type": "file"
+    },
+    {
+      "path": "test\\connect-continue-yaml.test.ts",
+      "accessCount": 3,
+      "lastAccessed": 1785681560594,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\coroi\\.agentmemory\\.env",
+      "accessCount": 3,
+      "lastAccessed": 1785682858159,
+      "type": "file"
+    },
+    {
+      "path": "test\\diagnostics.test.ts",
+      "accessCount": 3,
+      "lastAccessed": 1785684171407,
+      "type": "file"
+    },
+    {
+      "path": "test\\hook-project.test.ts",
+      "accessCount": 3,
+      "lastAccessed": 1785684271931,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\util.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785678243429,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\claude-code.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785678253261,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\json-mcp-adapter.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785678272578,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\index.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785678304593,
+      "type": "file"
+    },
+    {
+      "path": "test\\cli-connect.test.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785678368921,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\connect\\opencode.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785678557839,
+      "type": "file"
+    },
+    {
+      "path": "test\\copilot-plugin.test.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785681809982,
+      "type": "file"
+    },
+    {
+      "path": "test\\auto-compress.test.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785682272315,
+      "type": "file"
+    },
+    {
+      "path": "test\\cli-remove.test.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785682357231,
+      "type": "file"
+    },
+    {
+      "path": "src\\providers\\resilient.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785683998295,
+      "type": "file"
+    },
+    {
+      "path": "src\\functions\\search.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785684017907,
+      "type": "file"
+    },
+    {
+      "path": "src\\triggers\\api.ts",
+      "accessCount": 2,
+      "lastAccessed": 1785684070009,
+      "type": "file"
+    },
+    {
+      "path": "package.json",
+      "accessCount": 1,
+      "lastAccessed": 1785676445134,
+      "type": "file"
+    },
+    {
+      "path": "C:\\Users\\coroi\\.agentmemory\\iii-config.yaml",
+      "accessCount": 1,
+      "lastAccessed": 1785676753836,
+      "type": "file"
+    },
+    {
+      "path": "test\\provider-pin.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1785681028182,
+      "type": "file"
+    },
+    {
+      "path": "test\\compress-file.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1785682315671,
+      "type": "file"
+    },
+    {
+      "path": "src\\cli\\doctor-diagnostics.ts",
+      "accessCount": 1,
+      "lastAccessed": 1785682780220,
+      "type": "file"
+    },
+    {
+      "path": "test\\cli-doctor-fixes.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1785682822330,
+      "type": "file"
+    },
+    {
+      "path": "test\\rate-limit-monitor.test.ts",
+      "accessCount": 1,
+      "lastAccessed": 1785684138383,
+      "type": "file"
+    },
+    {
+      "path": "src\\hooks\\_project.ts",
+      "accessCount": 1,
+      "lastAccessed": 1785684263487,
+      "type": "file"
+    }
+  ],
+  "userDirectives": []
+}

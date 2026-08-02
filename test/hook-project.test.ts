@@ -46,6 +46,22 @@ describe("resolveProject — hook project basename resolver", () => {
     expect(resolveProject(nested)).toBe("agentmemory");
   });
 
+  // Regression: this used to shell out to `git rev-parse` with a 500ms
+  // timeout, so under load it returned "hooks" instead of "agentmemory"
+  // and observations were filed under the wrong project. Resolution must
+  // not depend on how busy the machine is.
+  it("resolves the same repo root under repeated rapid calls", () => {
+    const nested = join(process.cwd(), "src", "hooks");
+    const seen = new Set<string>();
+    for (let i = 0; i < 200; i++) seen.add(resolveProject(nested));
+    expect([...seen]).toEqual(["agentmemory"]);
+  });
+
+  it("finds the root from a deeply nested path", () => {
+    const deep = join(process.cwd(), "src", "functions");
+    expect(resolveProject(deep)).toBe("agentmemory");
+  });
+
   it("falls back to basename(cwd) when not in a git repo", () => {
     const dir = mkdtempSync(join(tmpdir(), "amem-noproj-"));
     try {

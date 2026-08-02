@@ -1,5 +1,6 @@
 import type { MemoryProvider, CircuitBreakerState } from "../types.js";
 import { CircuitBreaker } from "./circuit-breaker.js";
+import { recordProviderCall } from "./rate-limit-monitor.js";
 
 export class ResilientProvider implements MemoryProvider {
   private breaker = new CircuitBreaker();
@@ -16,9 +17,15 @@ export class ResilientProvider implements MemoryProvider {
     try {
       const result = await fn();
       this.breaker.recordSuccess();
+      recordProviderCall();
       return result;
     } catch (err) {
       this.breaker.recordFailure();
+      // Recorded before rethrowing: callers above this point swallow the
+      // error (compression falls back to a synthetic summary), so this is
+      // the last place a 429 is still distinguishable from any other
+      // failure.
+      recordProviderCall(err);
       throw err;
     }
   }

@@ -13,6 +13,7 @@ import { StateKV } from "../state/kv.js";
 import { getLatestHealth } from "../health/monitor.js";
 import type { MetricsStore } from "../eval/metrics-store.js";
 import { mostDegraded } from "../providers/task-router.js";
+import { getRateLimitStats } from "../providers/rate-limit-monitor.js";
 import { VERSION } from "../version.js";
 import { timingSafeCompare } from "../auth.js";
 import { isSlotsEnabled, isReflectEnabled } from "../functions/slots.js";
@@ -284,6 +285,10 @@ export function registerApiTriggers(
           health: health || null,
           functionMetrics,
           circuitBreaker,
+          // Exposed so `doctor` can flag rate limiting without needing a
+          // full mem::diagnose run. The failures it counts are otherwise
+          // swallowed, so nothing else in this payload reveals them.
+          rateLimit: getRateLimitStats(),
           viewerPort: getBoundViewerPort(),
           viewerSkipped: getViewerSkipped(),
         },

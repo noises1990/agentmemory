@@ -1,0 +1,26 @@
+{
+  "agents": [
+    {
+      "agent_id": "atesting-1c439f2400ddeb35",
+      "agent_type": "testing",
+      "started_at": "2026-08-02T10:02:58.793Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-02T10:04:08.863Z",
+      "duration_ms": 70070
+    },
+    {
+      "agent_id": "aadversarial-1f5ceb7b1e6f1a3e",
+      "agent_type": "adversarial",
+      "started_at": "2026-08-02T10:06:46.151Z",
+      "parent_mode": "none",
+      "status": "completed",
+      "completed_at": "2026-08-02T10:08:34.563Z",
+      "duration_ms": 108412
+    }
+  ],
+  "total_spawned": 2,
+  "total_completed": 18,
+  "total_failed": 0,
+  "last_updated": "2026-08-02T15:13:07.188Z"
+}
