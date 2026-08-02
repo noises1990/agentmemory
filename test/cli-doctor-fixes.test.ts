@@ -93,6 +93,34 @@ describe("doctor v2 diagnostic catalog", () => {
     expect(status.ok).toBe(true);
   });
 
+  // The check now consults process.env as well as the dotfile, so these
+  // cases have to run without whatever provider keys the developer
+  // happens to have exported.
+  const PROVIDER_ENV_KEYS = [
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "CLOUDFLARE_API_TOKEN",
+    "GEMINI_API_KEY",
+    "GOOGLE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "MINIMAX_API_KEY",
+  ];
+
+  function withoutAmbientKeys<T>(fn: () => T): T {
+    const saved: Record<string, string | undefined> = {};
+    for (const k of PROVIDER_ENV_KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    try {
+      return fn();
+    } finally {
+      for (const k of PROVIDER_ENV_KEYS) {
+        if (saved[k] !== undefined) process.env[k] = saved[k];
+      }
+    }
+  }
+
   it("no-llm-provider-key fails when env has only placeholders", async () => {
     const diagnostics = buildDiagnostics(
       stubEffects({
@@ -101,15 +129,47 @@ describe("doctor v2 diagnostic catalog", () => {
       }),
     );
     const check = diagnostics.find((d) => d.id === "no-llm-provider-key")!;
-    const status = await check.check(stubCtx());
+    const status = await withoutAmbientKeys(() => check.check(stubCtx()));
     expect(status.ok).toBe(false);
   });
 
   it("no-llm-provider-key passes when one real key is set", async () => {
     const diagnostics = buildDiagnostics(stubEffects());
     const check = diagnostics.find((d) => d.id === "no-llm-provider-key")!;
-    const status = await check.check(stubCtx());
+    const status = await withoutAmbientKeys(() => check.check(stubCtx()));
     expect(status.ok).toBe(true);
+  });
+
+  // A launcher that injects the token from an OS credential store leaves
+  // .env deliberately secret-free. Reporting "no provider key" there sent
+  // users to paste a secret into the one file they had kept clean.
+  it("no-llm-provider-key passes when the key comes from the environment", async () => {
+    const diagnostics = buildDiagnostics(
+      stubEffects({
+        envFileExists: () => true,
+        readEnvFile: () => ({ AGENTMEMORY_PROVIDER: "cloudflare" }),
+      }),
+    );
+    const check = diagnostics.find((d) => d.id === "no-llm-provider-key")!;
+    const status = await withoutAmbientKeys(async () => {
+      process.env["CLOUDFLARE_API_TOKEN"] = "cf-real-token-value";
+      try {
+        return await check.check(stubCtx());
+      } finally {
+        delete process.env["CLOUDFLARE_API_TOKEN"];
+      }
+    });
+    expect(status.ok).toBe(true);
+    expect(status.detail).toContain("environment");
+  });
+
+  it("no-llm-provider-key still fails when neither source has a key", async () => {
+    const diagnostics = buildDiagnostics(
+      stubEffects({ envFileExists: () => true, readEnvFile: () => ({}) }),
+    );
+    const check = diagnostics.find((d) => d.id === "no-llm-provider-key")!;
+    const status = await withoutAmbientKeys(() => check.check(stubCtx()));
+    expect(status.ok).toBe(false);
   });
 
   it("engine-version-mismatch fails when iii reports the wrong version", async () => {

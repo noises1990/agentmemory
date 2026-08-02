@@ -203,15 +203,33 @@ export function buildDiagnostics(effects: DoctorEffects): Diagnostic[] {
         "to a real (non-placeholder) value at startup. CLOUDFLARE_API_TOKEN additionally " +
         "requires CLOUDFLARE_ACCOUNT_ID unless a Cloudflare base URL is set.",
       check: async () => {
-        if (!effects.envFileExists()) {
-          return { ok: false, detail: "env file missing (run env-missing fix first)" };
+        // The daemon reads the MERGED env -- process.env layered over the
+        // dotfile -- so a key exported by the shell, or injected from an
+        // OS credential store by a launcher wrapper, is just as valid as
+        // one written to .env. Checking only the file reported "no
+        // provider key" for setups that were working fine, and pointed
+        // the fix at pasting a secret into a file the user had
+        // deliberately kept secret-free.
+        const fileEnv = effects.envFileExists() ? effects.readEnvFile() : {};
+        const fromFile = realProviderKeys(fileEnv);
+        const fromProcess = realProviderKeys(
+          process.env as Record<string, string>,
+        ).filter((k) => !fromFile.includes(k));
+
+        if (fromFile.length === 0 && fromProcess.length === 0) {
+          return {
+            ok: false,
+            detail: effects.envFileExists()
+              ? "no provider key set"
+              : "env file missing (run env-missing fix first)",
+          };
         }
-        const env = effects.readEnvFile();
-        const real = realProviderKeys(env);
-        return {
-          ok: real.length > 0,
-          detail: real.length > 0 ? `found: ${real.join(", ")}` : "no provider key set",
-        };
+
+        const parts = [
+          ...fromFile.map((k) => k),
+          ...fromProcess.map((k) => `${k} (environment)`),
+        ];
+        return { ok: true, detail: `found: ${parts.join(", ")}` };
       },
       fix: (ctx) => effects.openEditor(ctx.envPath),
     },
