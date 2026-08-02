@@ -97,7 +97,7 @@ import { DedupMap } from "./functions/dedup.js";
 import { registerHealthMonitor } from "./health/monitor.js";
 import { initMetrics, OTEL_CONFIG } from "./telemetry/setup.js";
 import { VERSION } from "./version.js";
-import { bootLog } from "./logger.js";
+import { bootLog, bootWarn } from "./logger.js";
 import { mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
@@ -171,9 +171,31 @@ async function main() {
   bootLog(
     `Provider: ${config.provider.provider} (${config.provider.model})`,
   );
-  for (const [model, tasks] of taskProviders.routingSummary()) {
+  const routing = taskProviders.routingSummary();
+  // `graph` is routed unconditionally but registerGraphFunction is gated on
+  // isGraphExtractionEnabled() (off by default), so without this marker the
+  // boot log asserts a route that cannot fire.
+  const inert = new Set<string>(isGraphExtractionEnabled() ? [] : ["graph"]);
+  for (const [model, tasks] of routing) {
     if (model === config.provider.model) continue;
-    bootLog(`  ↳ ${tasks.join(", ")} → ${model}`);
+    const labelled = tasks.map((t) => (inert.has(t) ? `${t} (inactive)` : t));
+    bootLog(`  ↳ ${labelled.join(", ")} → ${model}`);
+  }
+  // Per-task models apply to the PRIMARY provider only. createFallbackProvider
+  // resolves each chain member with defaultModelFor(providerType) rather than
+  // copying config.model — deliberately (#778), since calling Gemini with a
+  // Cloudflare model name just 404s. The consequence is that during a primary
+  // outage every task collapses onto one fallback model, and because
+  // FallbackChainProvider.tryAll returns the fallback's success, the breaker
+  // stays closed and /agentmemory/health still reports healthy. Warn at boot,
+  // because nothing at runtime will.
+  if (fallbackConfig.providers.length > 0 && routing.size > 1) {
+    bootWarn(
+      `Per-task model routing applies to ${config.provider.provider} only. If it fails, ` +
+        `fallback providers (${fallbackConfig.providers.join(", ")}) serve every task on ` +
+        `their own default model — per-task cost tiering is lost for the duration and ` +
+        `health will not report it.`,
+    );
   }
   if (embeddingProvider) {
     bootLog(
@@ -369,7 +391,7 @@ async function main() {
   );
   registerRecentSearchesSweepFunction(sdk, kv);
 
-  registerApiTriggers(sdk, kv, secret, metricsStore, taskProviders.allProviders());
+  registerApiTriggers(sdk, kv, secret, metricsStore, taskProviders.providerStates());
   registerEventTriggers(sdk, kv);
   registerMcpEndpoints(sdk, kv, secret);
 

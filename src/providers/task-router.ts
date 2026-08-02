@@ -80,11 +80,27 @@ export function mostDegraded(
   );
 }
 
+// noop and agent-sdk are constructed with no ProviderConfig at all
+// (providers/index.ts: `new NoopProvider()` / `new AgentSDKProvider()`), so
+// they physically cannot honour a per-task model. Routing them by model string
+// built one identical provider per override and made modelFor()/routingSummary()
+// report routes that can never take effect — and noop is the default whenever
+// no LLM key is present, so that was the common path, not an edge case.
+const MODEL_AGNOSTIC_PROVIDERS: ReadonlySet<ProviderConfig["provider"]> = new Set([
+  "noop",
+  "agent-sdk",
+]);
+
 export interface TaskProviderFactory {
   providerFor(task: MemoryTask): ResilientProvider;
   modelFor(task: MemoryTask): string;
   allProviders(): ResilientProvider[];
   routingSummary(): Map<string, MemoryTask[]>;
+  // Breaker state paired with the model it belongs to. mostDegraded() alone
+  // returns a bare CircuitBreakerState, so one typo'd task model made
+  // `agentmemory status` report an open circuit with no way to identify which
+  // model was broken, and presented one provider's failure count as the fleet's.
+  providerStates(): Array<{ model: string; state: CircuitBreakerState }>;
 }
 
 export function makeTaskProviderFactory(
@@ -115,8 +131,12 @@ export function makeTaskProviderFactory(
   // be pure lookups: reading getEnvVar per call would let a task route
   // differently mid-process if ~/.agentmemory/.env changed after boot,
   // silently disagreeing with what the boot log already reported.
+  // Ignore overrides outright when the active provider discards the model, so
+  // routing reports what will actually happen rather than what was asked for.
+  const honoursModel = !MODEL_AGNOSTIC_PROVIDERS.has(config.provider.provider);
+
   for (const task of ALL_TASKS) {
-    const override = getEnvVar(envVarForTask(task))?.trim();
+    const override = honoursModel ? getEnvVar(envVarForTask(task))?.trim() : undefined;
     const requestedModel = override || config.provider.model;
 
     let entry = byModel.get(requestedModel);
@@ -147,6 +167,13 @@ export function makeTaskProviderFactory(
       return model;
     },
     allProviders: () => [...byModel.values()].map((entry) => entry.provider),
+    // entry.model, not the map key: the key is what routing requested, this is
+    // what the provider was actually built with.
+    providerStates: () =>
+      [...byModel.values()].map((entry) => ({
+        model: entry.model,
+        state: entry.provider.circuitState,
+      })),
     // Defensive copies: callers must not be able to mutate the factory's
     // internal routing state by mutating the returned map or its arrays.
     routingSummary: () => new Map([...tasksByModel].map(([model, tasks]) => [model, [...tasks]])),

@@ -1,7 +1,7 @@
 # Per-task model routing
 
 **Date:** 2026-07-25
-**Status:** Approved, not yet implemented
+**Status:** Implemented. See §Known limitations for what review surfaced afterwards.
 **Branch:** `feat/per-task-model-routing` (off `feat/cloudflare-provider`)
 
 ## Problem
@@ -196,6 +196,64 @@ behaviour, with env keys blanked rather than deleted (see
 
 With no variables set, behaviour is identical to today: one provider, one model,
 one breaker, unchanged boot output.
+
+## Known limitations
+
+Surfaced by adversarial review after implementation. Items marked *fixed* are
+addressed in the working tree; the rest are open and deliberately not fixed
+here, because each changes behaviour outside this feature.
+
+**Fixed.** Providers that discard the model (`noop`, `agent-sdk`, constructed
+with no `ProviderConfig`) now ignore per-task overrides outright instead of
+building one identical provider per override and reporting routes that could
+never fire — this was the default path whenever no LLM key is present. Health
+now reports `{model, state}` per provider rather than a bare aggregate, so one
+typo'd task model no longer makes the whole service appear down with no way to
+identify the culprit. A `bootWarn` fires when routing and fallback are both
+configured (see below). `graph` is marked `(inactive)` in the boot log when
+extraction is disabled.
+
+**Open — fallback collapses routing, invisibly.** Per-task models apply to the
+*primary* provider only. `createFallbackProvider` resolves each chain member
+with `defaultModelFor(providerType)`, deliberately (#778) — a fallback cannot be
+called with the primary's model name. So during a primary outage every task runs
+on one fallback model and cost tiering is suspended. Worse, `FallbackChainProvider.tryAll`
+returns the fallback's success, so `ResilientProvider` records success, the
+breaker stays closed and health reports healthy. Only a boot-time warning covers
+this today. Fixing it properly means per-task × per-provider-type configuration.
+
+**Open — breaker granularity is wrong in both directions.** The breaker groups by
+model string, which matches neither volume nor credentials:
+- *Too coarse within a group.* The recommended cheap tier puts `compress` (fires
+  on every PostToolUse) with five low-volume tasks on one model, hence one
+  breaker. A compress-driven 429 storm blocks all six. §Failure modes' claim that
+  "a typo in one task's variable fails that task alone" holds only along the
+  model axis.
+- *Too fine across groups.* Providers authenticate and rate-limit per **account**,
+  not per model. A revoked token fails every model, but each model group has its
+  own 3-failure threshold and its own recovery timer — so N routed models means N×
+  the failing traffic and N uncorrelated half-open probes before protection
+  engages. §Failure modes reasons only about the within-model case.
+
+The fix direction is keying the breaker on credential/endpoint rather than model
+string, which changes failure semantics for every provider in the codebase.
+
+**Open — `modelFor()` has no production caller.** Goal 4 ("visibility into which
+model actually served each task") is served only by the boot log, which is
+verbose-gated and prints model→task groups rather than per-task. Health now
+exposes per-model breaker state, which covers part of it; no REST or CLI surface
+exposes the routing table itself.
+
+**Open — an empty-string `process.env` entry masks a real value.** `getMergedEnv`
+spreads `process.env` over the file env, so `export AGENTMEMORY_COMPRESS_MODEL=`
+in the launching shell silently overrides the value in `~/.agentmemory/.env`, and
+because the boot log prints only deviations the output is identical to never
+having set it. `config.ts` guards exactly this hazard for API keys via
+`hasRealValue()`; the routing path inherits the gap rather than introducing it.
+
+**Open — `query-expansion` has no callers.** `mem::expand-query` is never invoked
+in `src/`, while `.env.example` advertises its model variable as firing "on every
+search". Either wire it up or drop the task from the map.
 
 ## Future extensions
 

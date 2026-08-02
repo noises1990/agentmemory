@@ -1,11 +1,17 @@
 import { TriggerAction, type ISdk, type ApiRequest } from "iii-sdk";
-import type { Session, CompressedObservation, HookPayload, CommitLink, SessionSummary } from "../types.js";
+import type {
+  Session,
+  CompressedObservation,
+  HookPayload,
+  CommitLink,
+  SessionSummary,
+  CircuitBreakerState,
+} from "../types.js";
 import { withKeyedLock } from "../state/keyed-mutex.js";
 import { KV } from "../state/schema.js";
 import { StateKV } from "../state/kv.js";
 import { getLatestHealth } from "../health/monitor.js";
 import type { MetricsStore } from "../eval/metrics-store.js";
-import type { ResilientProvider } from "../providers/resilient.js";
 import { mostDegraded } from "../providers/task-router.js";
 import { VERSION } from "../version.js";
 import { timingSafeCompare } from "../auth.js";
@@ -141,7 +147,10 @@ export function registerApiTriggers(
   kv: StateKV,
   secret?: string,
   metricsStore?: MetricsStore,
-  providers?: ResilientProvider[],
+  // Labelled states rather than bare providers: an aggregate with no model
+  // attribution meant a typo in one task's model made the whole service look
+  // unhealthy with no way to tell which model was broken.
+  providerStates?: Array<{ model: string; state: CircuitBreakerState }>,
 ): void {
   sdk.registerFunction(
     "middleware::api-auth",
@@ -255,9 +264,13 @@ export function registerApiTriggers(
       const functionMetrics = metricsStore ? await metricsStore.getAll() : [];
       // Report the worst breaker across every routed model, not just the
       // default one — the highest-volume task often runs on a different model.
-      const circuitBreaker = mostDegraded(
-        (providers ?? []).map((p) => p.circuitState),
-      );
+      const worst = mostDegraded((providerStates ?? []).map((p) => p.state));
+      // Attach which model the worst breaker belongs to, so an open circuit
+      // names the culprit instead of implicating the whole service.
+      const degradedModel = worst
+        ? ((providerStates ?? []).find((p) => p.state === worst)?.model ?? null)
+        : null;
+      const circuitBreaker = worst ? { ...worst, model: degradedModel } : null;
 
       const status = health?.status || "healthy";
       const statusCode = status === "critical" ? 503 : 200;
