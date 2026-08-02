@@ -3,7 +3,6 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
-import { resolveProject } from "../src/hooks/_project.js";
 
 const repoRoot = resolve(__dirname, "..");
 const pluginRoot = join(repoRoot, "plugin");
@@ -289,14 +288,14 @@ describe("Copilot hook scripts", () => {
     const result = await runHook(
       "scripts/session-start.mjs",
       { sessionId: "copilot-session", cwd: "C:\\repo" },
-      { AGENTMEMORY_INJECT_CONTEXT: "true" },
+      { AGENTMEMORY_INJECT_CONTEXT: "true", AGENTMEMORY_PROJECT_NAME: "" },
     );
 
     expect(result.stdout).toBe("remembered context");
     expect(result.requests[0]?.path).toBe("/agentmemory/session/start");
     expect(result.requests[0]?.body).toMatchObject({
       sessionId: "copilot-session",
-      project: resolveProject("C:\\repo"),
+      project: process.platform === "win32" ? "repo" : "C:\\repo",
       cwd: "C:\\repo",
     });
   });
