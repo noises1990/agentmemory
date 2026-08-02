@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import * as p from "@clack/prompts";
@@ -52,8 +52,12 @@ function entryIsAgentmemory(entry: ContinueEntry | undefined): boolean {
 
 // Minimal YAML emitter for the agentmemory entry. Quotes string values
 // that contain ${ ... } expansion to keep parsers happy. Only used when
-// creating a fresh config.yaml — never when modifying an existing one.
-function renderFreshYaml(): string {
+// creating a fresh config.yaml, or when replacing a config.yaml we can
+// prove we wrote ourselves — never when modifying a user-authored one.
+function renderFreshYaml(
+  command: string = AGENTMEMORY_MCP_BLOCK.command,
+  args: readonly string[] = AGENTMEMORY_MCP_BLOCK.args,
+): string {
   const e = buildEntry();
   const envLines = Object.entries(e.env ?? {})
     .map(([k, v]) => `      ${k}: "${v}"`)
@@ -61,13 +65,48 @@ function renderFreshYaml(): string {
   return [
     "mcpServers:",
     `  - name: ${e.name}`,
-    `    command: ${e.command}`,
+    `    command: ${command}`,
     "    args:",
-    ...e.args.map((a) => `      - "${a}"`),
+    ...args.map((a) => `      - "${a}"`),
     "    env:",
     envLines,
     "",
   ].join("\n");
+}
+
+// Every command shape this emitter has ever produced. A config.yaml that
+// matches one of these byte-for-byte contains nothing but our own block,
+// so rewriting it destroys no user content — which is the only reason the
+// yaml branch is allowed to write at all.
+//
+// The bare-npx entry is the pre-Windows-support shape. It still resolves,
+// so it looks wired, but on Windows `npx` has no .exe — only npx.cmd — so
+// the MCP client spawns an implicit cmd.exe grandchild that belongs to no
+// Job Object and survives client exit. Users left on that shape accumulate
+// orphaned node processes holding the port.
+const GENERATED_SHAPES: ReadonlyArray<{ command: string; args: readonly string[] }> = [
+  { command: AGENTMEMORY_MCP_BLOCK.command, args: AGENTMEMORY_MCP_BLOCK.args },
+  { command: "npx", args: ["-y", "@agentmemory/mcp"] },
+];
+
+function normalizeYaml(text: string): string {
+  return text.replace(/\r\n/g, "\n").trimEnd();
+}
+
+/**
+ * Which of our generated shapes this file is, or null if the file has any
+ * content we did not write. Comparison is exact (modulo line endings and
+ * trailing newline): a single added comment or reordered key means a human
+ * touched it, and we fall back to printing the manual-merge instructions.
+ */
+function matchGeneratedShape(content: string): { isCurrent: boolean } | null {
+  const actual = normalizeYaml(content);
+  for (const [i, shape] of GENERATED_SHAPES.entries()) {
+    if (normalizeYaml(renderFreshYaml(shape.command, shape.args)) === actual) {
+      return { isCurrent: i === 0 };
+    }
+  }
+  return null;
 }
 
 export const adapter: ConnectAdapter = {
@@ -87,8 +126,39 @@ export const adapter: ConnectAdapter = {
     const jsonExists = existsSync(JSON_PATH);
 
     // Branch 1: yaml present — refuse to silently mutate user's yaml
-    // config (preserving comments/anchors needs a proper parser).
+    // config (preserving comments/anchors needs a proper parser), unless
+    // the file is byte-identical to something this emitter produced.
     if (yamlExists) {
+      const generated = matchGeneratedShape(readFileSync(YAML_PATH, "utf-8"));
+
+      if (generated) {
+        if (generated.isCurrent && !opts.force) {
+          logAlreadyWired("Continue", YAML_PATH);
+          return { kind: "already-wired", mutatedPath: YAML_PATH };
+        }
+
+        if (opts.dryRun) {
+          p.log.info(
+            `[dry-run] Would rewrite ${YAML_PATH} (agentmemory-generated, ${generated.isCurrent ? "refresh" : "outdated command shape"})`,
+          );
+          return { kind: "installed", mutatedPath: YAML_PATH };
+        }
+
+        const backupPath = backupFile(YAML_PATH, "continue", "yaml");
+        logBackup(backupPath);
+        writeFileSync(YAML_PATH, renderFreshYaml(), "utf-8");
+
+        if (matchGeneratedShape(readFileSync(YAML_PATH, "utf-8"))?.isCurrent !== true) {
+          p.log.error(
+            `Verification failed: ${YAML_PATH} does not hold the expected agentmemory entry after write.`,
+          );
+          return { kind: "skipped", reason: "verification-failed" };
+        }
+
+        logInstalled("Continue", YAML_PATH);
+        return { kind: "installed", mutatedPath: YAML_PATH, backupPath };
+      }
+
       const indented = renderFreshYaml()
         .split("\n")
         .map((l) => (l ? `  ${l}` : l))

@@ -7,20 +7,56 @@ import { join } from "node:path";
 // the canonical MCP block (npx @agentmemory/mcp + env defaults) into
 // the agent's documented config path.
 
+// Spelled out rather than imported from the adapter so the expectation is
+// independent of the code under test. On Windows a bare `npx` has no .exe,
+// only npx.cmd, so the MCP client spawns an implicit cmd.exe grandchild
+// that no Job Object owns and that survives client exit; spawning cmd.exe
+// explicitly keeps the node process a direct, reapable child.
+const EXPECTED_MCP_COMMAND =
+  process.platform === "win32"
+    ? process.env["ComSpec"] || process.env["COMSPEC"] || "cmd.exe"
+    : "npx";
+
 function freshHome(): string {
   return mkdtempSync(join(tmpdir(), "am-connect-"));
 }
 
+// os.homedir() reads USERPROFILE on Windows and HOME elsewhere. Setting
+// only HOME left every adapter here pointed at the developer's real home
+// directory on Windows: the tests read (and would have written) the live
+// ~/.continue, ~/.kiro and friends, and passed or failed based on whatever
+// happened to be installed on that machine rather than on the sandbox.
+type SavedHome = { home?: string | undefined; userprofile?: string | undefined };
+
+function captureHome(): SavedHome {
+  return {
+    home: process.env["HOME"],
+    userprofile: process.env["USERPROFILE"],
+  };
+}
+
+function setHome(dir: string) {
+  process.env["HOME"] = dir;
+  process.env["USERPROFILE"] = dir;
+}
+
+function restoreHome(saved: SavedHome) {
+  if (saved.home === undefined) delete process.env["HOME"];
+  else process.env["HOME"] = saved.home;
+  if (saved.userprofile === undefined) delete process.env["USERPROFILE"];
+  else process.env["USERPROFILE"] = saved.userprofile;
+}
+
 describe("connect: Qwen Code", () => {
   let home: string;
-  const ORIG = process.env["HOME"];
+  const ORIG = captureHome();
   beforeEach(() => {
     home = freshHome();
     vi.resetModules();
-    process.env["HOME"] = home;
+    setHome(home);
   });
   afterEach(() => {
-    process.env["HOME"] = ORIG;
+    restoreHome(ORIG);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -38,7 +74,7 @@ describe("connect: Qwen Code", () => {
     const cfg = JSON.parse(
       readFileSync(join(home, ".qwen", "settings.json"), "utf-8"),
     );
-    expect(cfg.mcpServers.agentmemory.command).toBe("npx");
+    expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
     expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
     expect(cfg.mcpServers.agentmemory.env.AGENTMEMORY_URL).toMatch(
       /\$\{AGENTMEMORY_URL:-/,
@@ -51,14 +87,14 @@ describe("connect: Qwen Code", () => {
 
 describe("connect: Antigravity", () => {
   let home: string;
-  const ORIG = process.env["HOME"];
+  const ORIG = captureHome();
   beforeEach(() => {
     home = freshHome();
     vi.resetModules();
-    process.env["HOME"] = home;
+    setHome(home);
   });
   afterEach(() => {
-    process.env["HOME"] = ORIG;
+    restoreHome(ORIG);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -75,7 +111,7 @@ describe("connect: Antigravity", () => {
     const cfg = JSON.parse(
       readFileSync(join(userDir, "mcp_config.json"), "utf-8"),
     );
-    expect(cfg.mcpServers.agentmemory.command).toBe("npx");
+    expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
     expect(cfg.mcpServers.agentmemory.env.AGENTMEMORY_URL).toMatch(
       /\$\{AGENTMEMORY_URL:-/,
     );
@@ -84,14 +120,14 @@ describe("connect: Antigravity", () => {
 
 describe("connect: Kiro", () => {
   let home: string;
-  const ORIG = process.env["HOME"];
+  const ORIG = captureHome();
   beforeEach(() => {
     home = freshHome();
     vi.resetModules();
-    process.env["HOME"] = home;
+    setHome(home);
   });
   afterEach(() => {
-    process.env["HOME"] = ORIG;
+    restoreHome(ORIG);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -109,21 +145,21 @@ describe("connect: Kiro", () => {
     const cfgPath = join(home, ".kiro", "settings", "mcp.json");
     expect(existsSync(cfgPath)).toBe(true);
     const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
-    expect(cfg.mcpServers.agentmemory.command).toBe("npx");
+    expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
     expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
   });
 });
 
 describe("connect: Warp", () => {
   let home: string;
-  const ORIG = process.env["HOME"];
+  const ORIG = captureHome();
   beforeEach(() => {
     home = freshHome();
     vi.resetModules();
-    process.env["HOME"] = home;
+    setHome(home);
   });
   afterEach(() => {
-    process.env["HOME"] = ORIG;
+    restoreHome(ORIG);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -141,7 +177,7 @@ describe("connect: Warp", () => {
     const cfgPath = join(home, ".warp", ".mcp.json");
     expect(existsSync(cfgPath)).toBe(true);
     const cfg = JSON.parse(readFileSync(cfgPath, "utf-8"));
-    expect(cfg.mcpServers.agentmemory.command).toBe("npx");
+    expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
     expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
     expect(cfg.mcpServers.agentmemory.env.AGENTMEMORY_URL).toMatch(
       /\$\{AGENTMEMORY_URL:-/,
@@ -151,14 +187,14 @@ describe("connect: Warp", () => {
 
 describe("connect: Cline", () => {
   let home: string;
-  const ORIG = process.env["HOME"];
+  const ORIG = captureHome();
   beforeEach(() => {
     home = freshHome();
     vi.resetModules();
-    process.env["HOME"] = home;
+    setHome(home);
   });
   afterEach(() => {
-    process.env["HOME"] = ORIG;
+    restoreHome(ORIG);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -176,21 +212,21 @@ describe("connect: Cline", () => {
     const cfg = JSON.parse(
       readFileSync(join(home, ".cline", "mcp.json"), "utf-8"),
     );
-    expect(cfg.mcpServers.agentmemory.command).toBe("npx");
+    expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
     expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
   });
 });
 
 describe("connect: Droid (Factory.ai)", () => {
   let home: string;
-  const ORIG = process.env["HOME"];
+  const ORIG = captureHome();
   beforeEach(() => {
     home = freshHome();
     vi.resetModules();
-    process.env["HOME"] = home;
+    setHome(home);
   });
   afterEach(() => {
-    process.env["HOME"] = ORIG;
+    restoreHome(ORIG);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -208,7 +244,7 @@ describe("connect: Droid (Factory.ai)", () => {
     const cfg = JSON.parse(
       readFileSync(join(home, ".factory", "mcp.json"), "utf-8"),
     );
-    expect(cfg.mcpServers.agentmemory.command).toBe("npx");
+    expect(cfg.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
     expect(cfg.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
     // Droid requires `type` per its documented schema
     expect(cfg.mcpServers.agentmemory.type).toBe("stdio");
@@ -217,14 +253,14 @@ describe("connect: Droid (Factory.ai)", () => {
 
 describe("connect: Zed", () => {
   let home: string;
-  const ORIG = process.env["HOME"];
+  const ORIG = captureHome();
   beforeEach(() => {
     home = freshHome();
     vi.resetModules();
-    process.env["HOME"] = home;
+    setHome(home);
   });
   afterEach(() => {
-    process.env["HOME"] = ORIG;
+    restoreHome(ORIG);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -242,7 +278,7 @@ describe("connect: Zed", () => {
     const cfg = JSON.parse(
       readFileSync(join(home, ".config", "zed", "settings.json"), "utf-8"),
     );
-    expect(cfg.context_servers.agentmemory.command).toBe("npx");
+    expect(cfg.context_servers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND);
     expect(cfg.context_servers.agentmemory.args).toContain("@agentmemory/mcp");
     expect(cfg.mcpServers).toBeUndefined();
   });
@@ -250,14 +286,14 @@ describe("connect: Zed", () => {
 
 describe("connect: Continue.dev", () => {
   let home: string;
-  const ORIG = process.env["HOME"];
+  const ORIG = captureHome();
   beforeEach(() => {
     home = freshHome();
     vi.resetModules();
-    process.env["HOME"] = home;
+    setHome(home);
   });
   afterEach(() => {
-    process.env["HOME"] = ORIG;
+    restoreHome(ORIG);
     rmSync(home, { recursive: true, force: true });
   });
 
@@ -299,7 +335,7 @@ describe("connect: Continue.dev", () => {
     const entry = cfg.mcpServers.find(
       (s: { name: string }) => s.name === "agentmemory",
     );
-    expect(entry.command).toBe("npx");
+    expect(entry.command).toBe(EXPECTED_MCP_COMMAND);
     expect(entry.args).toContain("@agentmemory/mcp");
   });
 
