@@ -9,6 +9,7 @@ import type {
   FallbackConfig,
   ClaudeBridgeConfig,
   TeamConfig,
+  ProviderType,
 } from "./types.js";
 
 function safeParseInt(value: string | undefined, fallback: number): number {
@@ -50,11 +51,51 @@ function hasRealValue(v: string | undefined): v is string {
   return typeof v === "string" && v.trim().length > 0;
 }
 
+const PROVIDER_NAMES: readonly ProviderType[] = [
+  "openai",
+  "minimax",
+  "cloudflare",
+  "anthropic",
+  "gemini",
+  "openrouter",
+  "agent-sdk",
+  "noop",
+];
+
+/** Credential each pinnable provider needs, for the "you pinned X but" error. */
+const PROVIDER_CREDENTIAL = {
+  openai: "OPENAI_API_KEY",
+  minimax: "MINIMAX_API_KEY",
+  cloudflare: "CLOUDFLARE_API_TOKEN",
+  anthropic: "ANTHROPIC_API_KEY",
+  gemini: "GEMINI_API_KEY (or GOOGLE_API_KEY)",
+  openrouter: "OPENROUTER_API_KEY",
+} as const;
+
 function detectProvider(env: Record<string, string>): ProviderConfig {
   const maxTokens = parseInt(env["MAX_TOKENS"] || "4096", 10);
 
+  // AGENTMEMORY_PROVIDER pins the provider instead of letting key presence
+  // decide it. Without this, a stray OPENAI_API_KEY anywhere in the user's
+  // environment silently outranks the provider they configured — and the
+  // first sign is the bill, not an error.
+  //
+  // A pin narrows the search to one candidate; it never invents credentials.
+  // If the pinned provider's key is missing we fall through to the loud
+  // failure below rather than quietly using the next provider in line.
+  const pinned = (env["AGENTMEMORY_PROVIDER"] || "").trim().toLowerCase();
+  const selects = (name: ProviderType): boolean => pinned === "" || pinned === name;
+
+  if (pinned !== "" && !PROVIDER_NAMES.includes(pinned as ProviderType)) {
+    process.stderr.write(
+      `[agentmemory] AGENTMEMORY_PROVIDER="${pinned}" is not a known provider. ` +
+        `Valid values: ${PROVIDER_NAMES.join(", ")}. Running zero-LLM until this is corrected.\n`,
+    );
+    return { provider: "noop", model: "noop", maxTokens };
+  }
+
   // OpenAI-compatible: supports OpenAI, DeepSeek, SiliconFlow, Azure, vLLM, LM Studio
-  if (hasRealValue(env["OPENAI_API_KEY"]) && env["OPENAI_API_KEY_FOR_LLM"] !== "false") {
+  if (selects("openai") && hasRealValue(env["OPENAI_API_KEY"]) && env["OPENAI_API_KEY_FOR_LLM"] !== "false") {
     return {
       provider: "openai",
       model: env["OPENAI_MODEL"] || "gpt-4o-mini",
@@ -64,7 +105,7 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
   }
 
   // MiniMax: Anthropic-compatible API, requires raw fetch to avoid SDK stainless headers
-  if (hasRealValue(env["MINIMAX_API_KEY"])) {
+  if (selects("minimax") && hasRealValue(env["MINIMAX_API_KEY"])) {
     return {
       provider: "minimax",
       model: env["MINIMAX_MODEL"] || "MiniMax-M2.7",
@@ -72,7 +113,7 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
     };
   }
 
-  if (hasRealValue(env["CLOUDFLARE_API_TOKEN"])) {
+  if (selects("cloudflare") && hasRealValue(env["CLOUDFLARE_API_TOKEN"])) {
     return {
       provider: "cloudflare",
       // Literal rather than CLOUDFLARE_DEFAULT_CHAT_MODEL: providers/ imports
@@ -84,7 +125,7 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
     };
   }
 
-  if (hasRealValue(env["ANTHROPIC_API_KEY"])) {
+  if (selects("anthropic") && hasRealValue(env["ANTHROPIC_API_KEY"])) {
     return {
       provider: "anthropic",
       model: env["ANTHROPIC_MODEL"] || "claude-sonnet-4-20250514",
@@ -92,7 +133,7 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
       baseURL: env["ANTHROPIC_BASE_URL"],
     };
   }
-  if (hasRealValue(env["GEMINI_API_KEY"]) || hasRealValue(env["GOOGLE_API_KEY"])) {
+  if (selects("gemini") && (hasRealValue(env["GEMINI_API_KEY"]) || hasRealValue(env["GOOGLE_API_KEY"]))) {
     if (!hasRealValue(env["GEMINI_API_KEY"]) && hasRealValue(env["GOOGLE_API_KEY"])) {
       process.stderr.write(
         "[agentmemory] GOOGLE_API_KEY detected — treating as GEMINI_API_KEY. " +
@@ -105,7 +146,7 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
       maxTokens,
     };
   }
-  if (hasRealValue(env["OPENROUTER_API_KEY"])) {
+  if (selects("openrouter") && hasRealValue(env["OPENROUTER_API_KEY"])) {
     const model =
       env["OPENROUTER_MODEL"] || "anthropic/claude-sonnet-4-20250514";
     // warn when the configured OpenRouter model is in the
@@ -136,8 +177,30 @@ function detectProvider(env: Record<string, string>): ProviderConfig {
     };
   }
 
+  // Reached with a pin set means the pinned provider's credential is absent.
+  // Report the specific missing key rather than degrading quietly: silently
+  // running zero-LLM looks identical to a working install until someone
+  // notices summaries have gone synthetic.
+  if (pinned !== "" && pinned !== "noop" && pinned !== "agent-sdk") {
+    process.stderr.write(
+      `[agentmemory] AGENTMEMORY_PROVIDER=${pinned} is set but ${PROVIDER_CREDENTIAL[pinned as keyof typeof PROVIDER_CREDENTIAL]} ` +
+        `is missing or empty. Running zero-LLM (BM25 + on-device embeddings) — no other provider will be substituted.\n`,
+    );
+    return { provider: "noop", model: "noop", maxTokens };
+  }
+
   const allowAgentSdk = env["AGENTMEMORY_ALLOW_AGENT_SDK"] === "true";
   if (!allowAgentSdk) {
+    if (pinned === "agent-sdk") {
+      // The pin alone is not enough. AGENTMEMORY_ALLOW_AGENT_SDK guards a
+      // real hazard (Stop-hook recursion), so it stays a separate opt-in.
+      process.stderr.write(
+        "[agentmemory] AGENTMEMORY_PROVIDER=agent-sdk also requires AGENTMEMORY_ALLOW_AGENT_SDK=true. " +
+          "Running zero-LLM until both are set.\n",
+      );
+      return { provider: "noop", model: "noop", maxTokens };
+    }
+    if (pinned === "noop") return { provider: "noop", model: "noop", maxTokens };
     process.stderr.write(
       pc.dim(
         "[agentmemory] No LLM provider key set — running zero-LLM (BM25 + on-device embeddings). " +
@@ -370,20 +433,43 @@ export function isConsolidationEnabled(): boolean {
 }
 
 function hasLLMProviderConfigured(env: Record<string, string | undefined>): boolean {
-  const provider = (env["AGENTMEMORY_PROVIDER"] || "").toLowerCase();
+  const provider = (env["AGENTMEMORY_PROVIDER"] || "").trim().toLowerCase();
   if (provider === "noop") return false;
+  if (provider === "agent-sdk") return true;
   const openaiKeyForLlm =
     env["OPENAI_API_KEY"] &&
     (env["OPENAI_API_KEY_FOR_LLM"] || "").toLowerCase() !== "false";
+  // A pin means only that provider's credential counts. Without this, pinning
+  // cloudflare while a stale ANTHROPIC_API_KEY lingers reports "configured"
+  // for a provider detectProvider() will never select.
+  if (provider in PROVIDER_CREDENTIAL) {
+    switch (provider) {
+      case "openai":
+        return Boolean(openaiKeyForLlm || env["OPENAI_BASE_URL"]);
+      case "gemini":
+        return Boolean(env["GEMINI_API_KEY"] || env["GOOGLE_API_KEY"]);
+      case "minimax":
+        return Boolean(env["MINIMAX_API_KEY"]);
+      case "cloudflare":
+        return Boolean(env["CLOUDFLARE_API_TOKEN"]);
+      case "anthropic":
+        return Boolean(env["ANTHROPIC_API_KEY"]);
+      case "openrouter":
+        return Boolean(env["OPENROUTER_API_KEY"]);
+    }
+  }
   return Boolean(
     env["ANTHROPIC_API_KEY"] ||
       openaiKeyForLlm ||
+      // CLOUDFLARE_API_TOKEN was missing here while consolidation-pipeline.ts
+      // already advertised it as a valid way to enable consolidation, so a
+      // Cloudflare-only install silently ran with consolidation off.
+      env["CLOUDFLARE_API_TOKEN"] ||
       env["OPENROUTER_API_KEY"] ||
       env["GEMINI_API_KEY"] ||
       env["GOOGLE_API_KEY"] ||
       env["MINIMAX_API_KEY"] ||
-      env["OPENAI_BASE_URL"] ||
-      provider === "agent-sdk",
+      env["OPENAI_BASE_URL"],
   );
 }
 
