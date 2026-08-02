@@ -7,8 +7,10 @@ import {
   type ChildProcess,
 } from "node:child_process";
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   readlinkSync,
@@ -19,7 +21,7 @@ import {
 } from "node:fs";
 import { join, dirname, delimiter as PATH_DELIMITER } from "node:path";
 import { fileURLToPath } from "node:url";
-import { homedir, platform } from "node:os";
+import { homedir, platform, tmpdir } from "node:os";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 
@@ -789,6 +791,79 @@ function adoptRunningEngine(): void {
   }
 }
 
+/**
+ * Install the pinned engine from a .zip release asset (Windows).
+ *
+ * Downloads with Node's fetch rather than shelling out to curl — curl.exe
+ * exists on Windows 10+ but is not guaranteed, and the redirect to
+ * GitHub's CDN needs following either way. Extraction uses PowerShell's
+ * Expand-Archive, which is present on every supported Windows and avoids
+ * adding a zip dependency to the package for one platform.
+ *
+ * Extracts into a temp dir first, then moves only iii.exe into place, so
+ * a partial or unexpected archive can't leave a half-populated bin dir
+ * that later looks like a valid install.
+ */
+async function installIiiFromZip(
+  releaseUrl: string,
+  asset: string,
+): Promise<{ ok: boolean; binPath: string | null }> {
+  const binDir = agentmemoryBinDir();
+  const binPath = privateIiiPath();
+  const tmpRoot = mkdtempSync(join(tmpdir(), "agentmemory-iii-"));
+  const zipPath = join(tmpRoot, asset);
+  const extractDir = join(tmpRoot, "x");
+
+  const s = p.spinner();
+  s.start(`Installing iii-engine v${IIPINNED_VERSION} (pinned)`);
+  try {
+    const res = await fetch(releaseUrl, { redirect: "follow" });
+    if (!res.ok) throw new Error(`download failed: HTTP ${res.status}`);
+    writeFileSync(zipPath, Buffer.from(await res.arrayBuffer()));
+
+    const psCmd = `Expand-Archive -LiteralPath '${zipPath}' -DestinationPath '${extractDir}' -Force`;
+    const ok = runCommand(
+      "powershell",
+      ["-NoProfile", "-NonInteractive", "-Command", psCmd],
+      { label: "Extracting iii-engine", optional: true },
+    );
+    if (!ok) throw new Error("Expand-Archive failed");
+
+    const found = findFileRecursive(extractDir, "iii.exe");
+    if (!found) throw new Error("iii.exe not found in archive");
+
+    mkdirSync(binDir, { recursive: true });
+    copyFileSync(found, binPath);
+    s.stop(c.ok(`iii-engine v${IIPINNED_VERSION} installed`));
+    return { ok: true, binPath };
+  } catch (err) {
+    s.stop("iii-engine install failed");
+    p.log.warn(
+      `${err instanceof Error ? err.message : String(err)}\n` +
+        `Fallbacks: download ${releaseUrl} and extract iii.exe to ${binPath}, ` +
+        `or use Docker (\`docker pull iiidev/iii:${IIPINNED_VERSION}\`).`,
+    );
+    return { ok: false, binPath: null };
+  } finally {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  }
+}
+
+/** Shallow-ish recursive search for a filename; archives nest one level. */
+function findFileRecursive(dir: string, name: string): string | null {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isFile() && entry.name.toLowerCase() === name.toLowerCase()) {
+      return full;
+    }
+    if (entry.isDirectory()) {
+      const nested = findFileRecursive(full, name);
+      if (nested) return nested;
+    }
+  }
+  return null;
+}
+
 async function runIiiInstaller(): Promise<{ ok: boolean; binPath: string | null }> {
   const releaseUrl = iiiReleaseUrl();
   const asset = iiiReleaseAsset();
@@ -801,14 +876,13 @@ async function runIiiInstaller(): Promise<{ ok: boolean; binPath: string | null 
     return { ok: false, binPath: null };
   }
 
-  if (IS_WINDOWS || isZipAsset) {
-    p.log.info(
-      `Auto-install unavailable on ${platform()} — ${asset} isn't tar-compatible. Install manually:\n` +
-        `  1. Download ${releaseUrl}\n` +
-        `  2. Extract iii.exe and place it on PATH (e.g. %USERPROFILE%\\.local\\bin)\n` +
-        `Or use Docker: docker pull iiidev/iii:${IIPINNED_VERSION}`,
-    );
-    return { ok: false, binPath: null };
+  // Windows ships its engine as a .zip, which the curl|tar pipeline below
+  // can't consume — so auto-install used to bail here and tell the user to
+  // download and extract by hand. Nothing about the zip is actually
+  // hostile: PowerShell's Expand-Archive is present on every supported
+  // Windows, and Node can do the download itself without needing curl.
+  if (isZipAsset) {
+    return await installIiiFromZip(releaseUrl, asset ?? "iii.zip");
   }
 
   const shBin = whichBinary("sh");

@@ -3,6 +3,7 @@ import type { StateKV } from "../state/kv.js";
 import { KV } from "../state/schema.js";
 import { withKeyedLock } from "../state/keyed-mutex.js";
 import { recordAudit } from "./audit.js";
+import { getSearchIndex, getVectorIndex } from "./search.js";
 import type {
   Action,
   ActionEdge,
@@ -24,6 +25,7 @@ import type {
 } from "../types.js";
 
 const ALL_CATEGORIES = [
+  "retrieval",
   "actions",
   "leases",
   "sentinels",
@@ -52,6 +54,49 @@ export function registerDiagnosticsFunction(sdk: ISdk, kv: StateKV): void {
 
       const checks: DiagnosticCheck[] = [];
       const now = Date.now();
+
+      // Retrieval health. The vector index is written through
+      // vectorIndexAddGuarded, which SOFT-FAILS by design so a downed
+      // embedder can't break the save path. The cost of that choice is
+      // that a permanently-failing embedder is invisible: observations
+      // save, BM25 keeps working, and `smart-search` silently degrades
+      // to keyword-only ranking with no error anywhere. Surfacing the
+      // populated/total ratio makes that state diagnosable instead of
+      // being mistaken for "semantic search just isn't very good".
+      {
+        const vi = getVectorIndex();
+        const indexed = vi ? vi.size : 0;
+        const bm25 = getSearchIndex().size;
+        if (!vi) {
+          checks.push({
+            name: "vector-index-absent",
+            category: "retrieval",
+            status: "fail",
+            fixable: false,
+            message:
+              "No vector index is initialised — smart-search is keyword-only.",
+          });
+        } else if (bm25 > 0 && indexed === 0) {
+          checks.push({
+            name: "vector-index-empty",
+            category: "retrieval",
+            status: "fail",
+            fixable: false,
+            message:
+              `Vector index is empty while BM25 holds ${bm25} doc(s). Every embed ` +
+              `call is failing and being swallowed — smart-search is ranking on ` +
+              `keywords alone. Check the embedding provider's credentials and base URL.`,
+          });
+        } else {
+          checks.push({
+            name: "vector-index-ok",
+            category: "retrieval",
+            status: indexed < bm25 ? "warn" : "pass",
+            fixable: false,
+            message: `Vector index holds ${indexed} of ${bm25} indexed doc(s).`,
+          });
+        }
+      }
 
       if (categories.includes("actions")) {
         const actions = await kv.list<Action>(KV.actions);
