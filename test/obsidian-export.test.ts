@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
+import { join, resolve } from "node:path";
 
 vi.mock("../src/logger.js", () => ({
   logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -7,12 +8,17 @@ vi.mock("../src/logger.js", () => ({
 const writtenFiles = new Map<string, string>();
 const createdDirs = new Set<string>();
 
+// Keys are recorded with forward slashes so the assertions below can
+// stay written as "memories/mem_001.md". join() emits backslashes on
+// Windows, which otherwise made every path lookup here miss.
+const toPosix = (p: string) => p.replace(/\\/g, "/");
+
 vi.mock("node:fs/promises", () => ({
   mkdir: vi.fn(async (dir: string) => {
-    createdDirs.add(dir);
+    createdDirs.add(toPosix(dir));
   }),
   writeFile: vi.fn(async (path: string, content: string) => {
-    writtenFiles.set(path, content);
+    writtenFiles.set(toPosix(path), content);
   }),
 }));
 
@@ -121,7 +127,11 @@ function makeSession(id: string): Session {
 describe("Obsidian Export", () => {
   let sdk: ReturnType<typeof mockSdk>;
   let kv: ReturnType<typeof mockKV>;
-  const exportRoot = "/tmp/agentmemory-export-root";
+  // resolve() rather than a bare POSIX literal: the export-root guard
+  // compares resolved paths, and on Windows "/tmp/x" resolves to
+  // "<drive>:\tmp\x" -- so a hard-coded "/tmp/x" never matched what the
+  // code produced, and the guard looked broken when it was working.
+  const exportRoot = resolve("/tmp/agentmemory-export-root");
 
   beforeEach(() => {
     process.env.AGENTMEMORY_EXPORT_ROOT = exportRoot;
@@ -222,19 +232,18 @@ describe("Obsidian Export", () => {
   });
 
   it("respects custom vaultDir", async () => {
-    await sdk.trigger("mem::obsidian-export", {
-      vaultDir: "/tmp/agentmemory-export-root/test-vault",
-    });
+    const vaultDir = join(exportRoot, "test-vault");
+    await sdk.trigger("mem::obsidian-export", { vaultDir });
 
     const hasCustomPath = [...createdDirs].some((d) =>
-      d.startsWith("/tmp/agentmemory-export-root/test-vault"),
+      d.startsWith(toPosix(vaultDir)),
     );
     expect(hasCustomPath).toBe(true);
   });
 
   it("rejects vaultDir outside the export root", async () => {
     const result = (await sdk.trigger("mem::obsidian-export", {
-      vaultDir: "/tmp/outside-root",
+      vaultDir: resolve("/tmp/outside-root"),
     })) as { success: boolean; error: string };
 
     expect(result.success).toBe(false);

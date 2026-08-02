@@ -1,64 +1,95 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import {
-  createEmbeddingProvider,
-  withDimensionGuard,
-} from "../src/providers/embedding/index.js";
-import { GeminiEmbeddingProvider } from "../src/providers/embedding/gemini.js";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { withDimensionGuard } from "../src/providers/embedding/index.js";
 import { OpenAIEmbeddingProvider } from "../src/providers/embedding/openai.js";
-import { CloudflareEmbeddingProvider } from "../src/providers/embedding/cloudflare.js";
 import type { EmbeddingProvider } from "../src/types.js";
 
+// Provider detection reads the MERGED env: process.env layered over
+// ~/.agentmemory/.env. Clearing process.env alone is therefore not
+// isolation -- on any machine that actually runs agentmemory, the dotfile
+// puts the keys straight back and these tests assert against the
+// developer's own configuration. Point HOME *and* USERPROFILE (which is
+// what os.homedir() reads on Windows) at an empty directory instead.
+//
+// config.ts resolves the dotfile path at module load, so the sandbox has
+// to be in place before the import: hence the dynamic import per test.
 describe("createEmbeddingProvider", () => {
-  const originalEnv = { ...process.env };
+  // Deliberately NOT `process.env = {...}`. Assigning to process.env
+  // replaces Node's magic env object with a plain one, and plain-object
+  // writes never reach setenv() -- so os.homedir(), which asks libuv and
+  // not process.env, keeps returning the developer's real home no matter
+  // what USERPROFILE is set to. Mutating individual keys does propagate.
+  const MANAGED_KEYS = [
+    "HOME",
+    "USERPROFILE",
+    "GEMINI_API_KEY",
+    "OPENAI_API_KEY",
+    "CLOUDFLARE_API_TOKEN",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "VOYAGE_API_KEY",
+    "COHERE_API_KEY",
+    "OPENROUTER_API_KEY",
+    "EMBEDDING_PROVIDER",
+  ];
+  const saved: Record<string, string | undefined> = {};
+  let sandboxHome: string;
+
+  async function freshCreate() {
+    vi.resetModules();
+    return (await import("../src/providers/embedding/index.js"))
+      .createEmbeddingProvider;
+  }
 
   beforeEach(() => {
-    process.env = { ...originalEnv };
-    delete process.env["GEMINI_API_KEY"];
-    delete process.env["OPENAI_API_KEY"];
-    delete process.env["CLOUDFLARE_API_TOKEN"];
-    delete process.env["VOYAGE_API_KEY"];
-    delete process.env["COHERE_API_KEY"];
-    delete process.env["OPENROUTER_API_KEY"];
-    delete process.env["EMBEDDING_PROVIDER"];
+    sandboxHome = mkdtempSync(join(tmpdir(), "am-embedding-"));
+    for (const k of MANAGED_KEYS) {
+      saved[k] = process.env[k];
+      delete process.env[k];
+    }
+    process.env["HOME"] = sandboxHome;
+    process.env["USERPROFILE"] = sandboxHome;
   });
 
   afterEach(() => {
-    process.env = originalEnv;
+    for (const k of MANAGED_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+    rmSync(sandboxHome, { recursive: true, force: true });
   });
 
-  it("returns null when no API keys are set", () => {
-    const provider = createEmbeddingProvider();
-    expect(provider).toBeNull();
+  it("returns null when no API keys are set", async () => {
+    const create = await freshCreate();
+    expect(create()).toBeNull();
   });
 
-  it("returns GeminiEmbeddingProvider when GEMINI_API_KEY is set", () => {
+  it("returns GeminiEmbeddingProvider when GEMINI_API_KEY is set", async () => {
     process.env["GEMINI_API_KEY"] = "test-key-123";
-    const provider = createEmbeddingProvider();
-    expect(provider).toBeInstanceOf(GeminiEmbeddingProvider);
+    const provider = (await freshCreate())();
     expect(provider!.name).toBe("gemini");
   });
 
-  it("returns OpenAIEmbeddingProvider when OPENAI_API_KEY is set", () => {
+  it("returns OpenAIEmbeddingProvider when OPENAI_API_KEY is set", async () => {
     process.env["OPENAI_API_KEY"] = "test-key-456";
-    const provider = createEmbeddingProvider();
-    expect(provider).toBeInstanceOf(OpenAIEmbeddingProvider);
+    const provider = (await freshCreate())();
     expect(provider!.name).toBe("openai");
   });
 
-  it("returns CloudflareEmbeddingProvider when CLOUDFLARE_API_TOKEN is set", () => {
+  it("returns CloudflareEmbeddingProvider when CLOUDFLARE_API_TOKEN is set", async () => {
     process.env["CLOUDFLARE_API_TOKEN"] = "test-key-789";
     process.env["CLOUDFLARE_ACCOUNT_ID"] = "test-account";
-    const provider = createEmbeddingProvider();
-    expect(provider).toBeInstanceOf(CloudflareEmbeddingProvider);
+    const provider = (await freshCreate())();
     expect(provider!.name).toBe("cloudflare");
   });
 
-  it("EMBEDDING_PROVIDER override takes precedence", () => {
+  it("EMBEDDING_PROVIDER override takes precedence", async () => {
     process.env["GEMINI_API_KEY"] = "test-key-123";
     process.env["OPENAI_API_KEY"] = "test-key-456";
     process.env["EMBEDDING_PROVIDER"] = "openai";
-    const provider = createEmbeddingProvider();
-    expect(provider).toBeInstanceOf(OpenAIEmbeddingProvider);
+    const provider = (await freshCreate())();
+    expect(provider!.name).toBe("openai");
   });
 });
 
