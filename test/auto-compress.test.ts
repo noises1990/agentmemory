@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { RawObservation } from "../src/types.js";
 
 vi.mock("../src/logger.js", () => ({
@@ -73,7 +76,21 @@ function validPayload(overrides: Partial<Record<string, unknown>> = {}) {
 }
 
 describe("mem::observe auto-compress gate (#138)", () => {
+  // isAutoCompressEnabled reads the MERGED env, so deleting the variable
+  // from process.env is not enough: on a machine that actually runs
+  // agentmemory, ~/.agentmemory/.env supplies AGENTMEMORY_AUTO_COMPRESS
+  // and the "unset" cases assert against the developer's own config.
+  // HOME and USERPROFILE both need redirecting -- os.homedir() reads the
+  // latter on Windows.
+  let sandboxHome: string;
+  const savedHome: Record<string, string | undefined> = {};
+
   beforeEach(() => {
+    sandboxHome = mkdtempSync(join(tmpdir(), "am-autocompress-"));
+    for (const k of ["HOME", "USERPROFILE"]) {
+      savedHome[k] = process.env[k];
+      process.env[k] = sandboxHome;
+    }
     // Reset module cache so observe.js re-imports config.js with the
     // fresh AGENTMEMORY_AUTO_COMPRESS env state. Without this, a later
     // test that sets the env var can be undermined by cached module
@@ -83,6 +100,11 @@ describe("mem::observe auto-compress gate (#138)", () => {
   });
   afterEach(() => {
     delete process.env["AGENTMEMORY_AUTO_COMPRESS"];
+    for (const k of ["HOME", "USERPROFILE"]) {
+      if (savedHome[k] === undefined) delete process.env[k];
+      else process.env[k] = savedHome[k];
+    }
+    rmSync(sandboxHome, { recursive: true, force: true });
   });
 
   it("default (AGENTMEMORY_AUTO_COMPRESS unset): does NOT fire mem::compress", async () => {

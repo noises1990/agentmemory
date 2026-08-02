@@ -63,10 +63,15 @@ export function registerDiagnosticsFunction(sdk: ISdk, kv: StateKV): void {
       // to keyword-only ranking with no error anywhere. Surfacing the
       // populated/total ratio makes that state diagnosable instead of
       // being mistaken for "semantic search just isn't very good".
-      {
+      //
+      // Reports nothing when BM25 is empty: coverage of zero documents is
+      // not a finding, and claiming one would make every fresh install
+      // look broken.
+      const bm25Size = getSearchIndex().size;
+      if (categories.includes("retrieval") && bm25Size > 0) {
         const vi = getVectorIndex();
         const indexed = vi ? vi.size : 0;
-        const bm25 = getSearchIndex().size;
+        const bm25 = bm25Size;
         if (!vi) {
           checks.push({
             name: "vector-index-absent",
@@ -76,7 +81,7 @@ export function registerDiagnosticsFunction(sdk: ISdk, kv: StateKV): void {
             message:
               "No vector index is initialised — smart-search is keyword-only.",
           });
-        } else if (bm25 > 0 && indexed === 0) {
+        } else if (indexed === 0) {
           checks.push({
             name: "vector-index-empty",
             category: "retrieval",

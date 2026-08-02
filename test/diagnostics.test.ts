@@ -491,6 +491,25 @@ describe("Diagnostics Functions", () => {
         result.checks.some((c) => c.category === "actions"),
       ).toBe(false);
     });
+
+    // The retrieval check runs before the per-category blocks, so it is
+    // the one most likely to escape the filter or to fire on a system
+    // with nothing indexed.
+    it("keeps the retrieval check inside the categories filter", async () => {
+      const result = (await sdk.trigger("mem::diagnose", {
+        categories: ["signals"],
+      })) as { checks: DiagnosticCheck[] };
+
+      expect(result.checks.some((c) => c.category === "retrieval")).toBe(false);
+    });
+
+    it("says nothing about vector coverage when nothing is indexed", async () => {
+      const result = (await sdk.trigger("mem::diagnose", {})) as {
+        checks: DiagnosticCheck[];
+      };
+
+      expect(result.checks.some((c) => c.category === "retrieval")).toBe(false);
+    });
   });
 
   describe("mem::heal", () => {

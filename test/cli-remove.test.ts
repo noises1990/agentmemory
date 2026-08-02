@@ -8,6 +8,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import {
   buildRemovePlan,
   formatPlan,
+  legacyLocalBinIii,
+  privateIiiBin,
   type ConnectManifest,
   type RemoveContext,
 } from "../src/cli/remove-plan.js";
@@ -35,6 +37,15 @@ function touch(relPath: string, content = ""): void {
 
 function mkdir(relPath: string): void {
   mkdirSync(join(sandbox, relPath), { recursive: true });
+}
+
+// The engine binary is "iii.exe" on Windows and "iii" elsewhere, and the
+// plan probes for the platform-correct name. Creating a literal "iii"
+// meant the Windows probe found nothing and no plan entry was produced,
+// so these tests asserted on undefined rather than on the guard.
+function touchAbs(full: string, content = ""): void {
+  mkdirSync(join(full, ".."), { recursive: true });
+  writeFileSync(full, content);
 }
 
 beforeEach(() => {
@@ -110,7 +121,7 @@ describe("buildRemovePlan", () => {
   });
 
   it("local-bin/iii is alwaysAsk when version does not match", () => {
-    touch(".local/bin/iii", "fakebin");
+    touchAbs(legacyLocalBinIii(sandbox), "fakebin");
     const plan = buildRemovePlan(
       ctx({ localBinIiiVersion: "9.9.9" }),
       { force: false, keepData: false },
@@ -121,7 +132,7 @@ describe("buildRemovePlan", () => {
   });
 
   it("local-bin/iii is auto-fixable when version matches pinned", () => {
-    touch(".local/bin/iii", "fakebin");
+    touchAbs(legacyLocalBinIii(sandbox), "fakebin");
     const plan = buildRemovePlan(
       ctx({ localBinIiiVersion: "0.11.2" }),
       { force: false, keepData: false },
@@ -139,7 +150,7 @@ describe("buildRemovePlan", () => {
   });
 
   it("private ~/.agentmemory/bin/iii is removed without prompt", () => {
-    touch(".agentmemory/bin/iii", "fakebin");
+    touchAbs(privateIiiBin(sandbox), "fakebin");
     const plan = buildRemovePlan(ctx(), { force: false, keepData: false });
     const item = plan.find((p) => p.id === "private-bin-iii")!;
     expect(item).toBeDefined();
