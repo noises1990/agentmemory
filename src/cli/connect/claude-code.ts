@@ -5,6 +5,7 @@ import * as p from "@clack/prompts";
 import type { ConnectAdapter, ConnectOptions, ConnectResult } from "./types.js";
 import {
   AGENTMEMORY_MCP_BLOCK,
+  isAgentmemoryMcpEntry,
   backupFile,
   logAlreadyWired,
   logBackup,
@@ -28,13 +29,7 @@ type ClaudeConfig = {
   [key: string]: unknown;
 };
 
-function entryMatches(entry: unknown): boolean {
-  if (!entry || typeof entry !== "object") return false;
-  const e = entry as Record<string, unknown>;
-  if (e["command"] !== "npx") return false;
-  const args = Array.isArray(e["args"]) ? (e["args"] as string[]) : [];
-  return args.includes("@agentmemory/mcp");
-}
+const entryMatches = isAgentmemoryMcpEntry;
 
 export const adapter: ConnectAdapter = {
   name: "claude-code",

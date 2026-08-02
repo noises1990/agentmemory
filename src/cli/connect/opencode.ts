@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import * as p from "@clack/prompts";
 import type { ConnectAdapter, ConnectOptions, ConnectResult } from "./types.js";
 import {
+  agentmemoryMcpCommand,
   backupFile,
   logAlreadyWired,
   logBackup,
@@ -26,9 +27,19 @@ const DETECT_DIR = join(homedir(), ".config", "opencode");
 // child inherits the shell environment (an exported AGENTMEMORY_URL /
 // AGENTMEMORY_SECRET still reaches the server), and the @agentmemory/mcp
 // shim defaults unset vars (URL -> localhost:3111, no secret, all tools).
+// OpenCode takes argv as a single array rather than command + args, but
+// the Windows requirement is identical: cmd.exe must be the explicit
+// head of the argv so it becomes a direct child and the node process
+// can't be orphaned on client exit. entryMatches keys on the package
+// name inside the array, so it stays correct with the wrapper prepended.
+const OPENCODE_COMMAND = (() => {
+  const { command, args } = agentmemoryMcpCommand();
+  return [command, ...args];
+})();
+
 const OPENCODE_ENTRY = {
   type: "local",
-  command: ["npx", "-y", "@agentmemory/mcp"],
+  command: OPENCODE_COMMAND,
   enabled: true,
 };
 

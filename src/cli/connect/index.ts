@@ -1,4 +1,3 @@
-import { platform } from "node:os";
 import * as p from "@clack/prompts";
 import pc from "picocolors";
 import type { ConnectAdapter, ConnectOptions, ConnectResult } from "./types.js";
@@ -99,16 +98,17 @@ export async function runAdapter(
 
 export async function runConnect(args: string[]): Promise<void> {
   const { dryRun, force, all, withHooks, positional } = parseFlags(args);
-  const allowWindowsAdapter =
-    positional.length === 1 && positional[0]?.toLowerCase() === "copilot-cli";
-  if (platform() === "win32" && !allowWindowsAdapter) {
-    p.intro("agentmemory connect");
-    p.log.warn(
-      "Windows: automated `connect` is not supported yet. See https://github.com/rohitg00/agentmemory#other-agents for manual install steps.",
-    );
-    p.outro("Windows: manual install required — see docs");
-    return;
-  }
+
+  // Windows used to be refused here outright, with copilot-cli as the
+  // single exception. The exception existed because Copilot's MCP block
+  // was the only one spawning cmd.exe explicitly; every other adapter
+  // wrote a bare `npx` command that orphans a node process per client
+  // restart on Windows. The adapters themselves were always portable —
+  // they are plain node:fs/node:path/homedir writers.
+  //
+  // agentmemoryMcpCommand() now applies the cmd.exe wrapper to the
+  // shared block, so the reason for the gate is gone and all adapters
+  // are wired on Windows like anywhere else.
 
   const opts: ConnectOptions = { dryRun, force, withHooks };
 

@@ -4,6 +4,7 @@ import { join, dirname } from "node:path";
 import * as p from "@clack/prompts";
 import type { ConnectAdapter, ConnectOptions, ConnectResult } from "./types.js";
 import {
+  agentmemoryMcpCommand,
   backupFile,
   logAlreadyWired,
   logBackup,
@@ -21,13 +22,26 @@ const CODEX_DIR = join(homedir(), ".codex");
 const CODEX_TOML = join(CODEX_DIR, "config.toml");
 const CODEX_HOOKS = join(CODEX_DIR, "hooks.json");
 
-const TOML_BLOCK = `[mcp_servers.agentmemory]
-command = "npx"
-args = ["-y", "@agentmemory/mcp"]
+// Built rather than hardcoded so Codex gets the same cmd.exe wrapping as
+// every other adapter on Windows (see util.ts::agentmemoryMcpCommand).
+// A bare `npx` here leaks an orphaned node process per Codex restart.
+//
+// The command is emitted as a TOML *literal* string (single quotes)
+// because the Windows value is a path like C:\WINDOWS\system32\cmd.exe —
+// in a basic (double-quoted) string TOML would read \W and \s as escape
+// sequences and fail to parse. Args contain no backslashes, so they stay
+// basic strings.
+function tomlBlock(): string {
+  const { command, args } = agentmemoryMcpCommand();
+  const argsList = args.map((a: string) => JSON.stringify(a)).join(", ");
+  return `[mcp_servers.agentmemory]
+command = '${command}'
+args = [${argsList}]
 
 [mcp_servers.agentmemory.env]
 AGENTMEMORY_URL = "http://localhost:3111"
 `;
+}
 
 const SECTION_HEADER = "[mcp_servers.agentmemory]";
 
@@ -100,7 +114,7 @@ export const adapter: ConnectAdapter = {
 
     const cleaned = wired ? stripExistingBlock(current) : current;
     const joiner = cleaned.length === 0 || cleaned.endsWith("\n") ? "" : "\n";
-    const next = `${cleaned}${joiner}${cleaned.length > 0 ? "\n" : ""}${TOML_BLOCK}`;
+    const next = `${cleaned}${joiner}${cleaned.length > 0 ? "\n" : ""}${tomlBlock()}`;
     writeFileSync(CODEX_TOML, next, "utf-8");
 
     const verify = readFileSync(CODEX_TOML, "utf-8");

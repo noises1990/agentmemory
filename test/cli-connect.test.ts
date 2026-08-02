@@ -10,7 +10,12 @@ import {
 } from "../src/cli/connect/index.js";
 import type { ConnectAdapter } from "../src/cli/connect/types.js";
 
-const EXPECTED_COPILOT_MCP_COMMAND =
+// Every adapter now shares this shape, not just Copilot. On Windows a
+// bare `npx` command is resolved through cmd.exe implicitly, orphaning
+// the real node process on client exit; spawning cmd.exe explicitly
+// keeps it a direct child. Copilot always did this, which is why it was
+// `connect`'s sole Windows exception.
+const EXPECTED_MCP_COMMAND =
   process.platform === "win32"
     ? {
         command: process.env["ComSpec"] || process.env["COMSPEC"] || "cmd.exe",
@@ -20,6 +25,8 @@ const EXPECTED_COPILOT_MCP_COMMAND =
         command: "npx",
         args: ["-y", "@agentmemory/mcp"],
       };
+
+const EXPECTED_COPILOT_MCP_COMMAND = EXPECTED_MCP_COMMAND;
 
 describe("agentmemory connect — dispatcher", () => {
   it("resolves every known agent by lowercase name", () => {
@@ -134,7 +141,8 @@ describe("agentmemory connect — claude-code adapter (mock filesystem)", () => 
     expect(first.kind).toBe("installed");
 
     const config = JSON.parse(readFileSync(join(tmpHome, ".claude.json"), "utf-8"));
-    expect(config.mcpServers.agentmemory.command).toBe("npx");
+    expect(config.mcpServers.agentmemory.command).toBe(EXPECTED_MCP_COMMAND.command);
+    expect(config.mcpServers.agentmemory.args).toEqual(EXPECTED_MCP_COMMAND.args);
     expect(config.mcpServers.agentmemory.args).toContain("@agentmemory/mcp");
     expect(config.mcpServers.other.command).toBe("x");
 
@@ -499,5 +507,75 @@ describe("agentmemory connect — stub adapters log + return stub", () => {
     const { adapter } = await import("../src/cli/connect/pi.js");
     const result = await adapter.install({ dryRun: false, force: false });
     expect(result.kind).toBe("stub");
+  });
+});
+
+// Windows portability. `connect` used to refuse to run on win32 entirely,
+// with copilot-cli as its single exception, and the docs told Windows
+// users to install under WSL2. The adapters were always portable (plain
+// node:fs/node:path/homedir); what was NOT portable was the shared MCP
+// command shape.
+describe("MCP command is Windows-safe on every adapter", () => {
+  it("wraps npx in an explicit cmd.exe on win32, bare npx elsewhere", async () => {
+    const { agentmemoryMcpCommand } = await import("../src/cli/connect/util.js");
+    const cmd = agentmemoryMcpCommand();
+
+    if (process.platform === "win32") {
+      // The point is that cmd.exe is a DIRECT child. A bare "npx" is
+      // still run via cmd.exe by the client, but as an implicit
+      // grandchild that no Job Object owns — so the node process
+      // survives client exit and leaks a port-holding orphan.
+      expect(cmd.command.toLowerCase()).toContain("cmd");
+      expect(cmd.args.slice(0, 3)).toEqual(["/d", "/s", "/c"]);
+    } else {
+      expect(cmd.command).toBe("npx");
+    }
+    expect(cmd.args).toContain("@agentmemory/mcp");
+  });
+
+  it("uses the same command for the shared block and the Copilot block", async () => {
+    const { AGENTMEMORY_MCP_BLOCK, AGENTMEMORY_COPILOT_MCP_BLOCK } = await import(
+      "../src/cli/connect/util.js"
+    );
+    // Copilot was the only Windows-safe adapter; the fix is that its
+    // shape is now the shared one, not a special case.
+    expect(AGENTMEMORY_MCP_BLOCK.command).toBe(AGENTMEMORY_COPILOT_MCP_BLOCK.command);
+    expect(AGENTMEMORY_MCP_BLOCK.args).toEqual(AGENTMEMORY_COPILOT_MCP_BLOCK.args);
+  });
+});
+
+describe("already-wired detection survives the command change", () => {
+  it("recognises both the bare-npx and cmd.exe-wrapped shapes", async () => {
+    const { isAgentmemoryMcpEntry } = await import("../src/cli/connect/util.js");
+
+    // A config written on macOS then synced to Windows (or the reverse)
+    // must still read as wired. Matching only the current platform's
+    // shape would rewrite the file on every run and never report
+    // "already-wired" — churn that looks like success.
+    expect(isAgentmemoryMcpEntry({ command: "npx", args: ["-y", "@agentmemory/mcp"] })).toBe(true);
+    expect(
+      isAgentmemoryMcpEntry({
+        command: "cmd.exe",
+        args: ["/d", "/s", "/c", "npx", "-y", "@agentmemory/mcp"],
+      }),
+    ).toBe(true);
+    expect(
+      isAgentmemoryMcpEntry({
+        command: "C:\WINDOWS\system32\cmd.exe",
+        args: ["/d", "/s", "/c", "npx", "-y", "@agentmemory/mcp"],
+      }),
+    ).toBe(true);
+  });
+
+  it("does not match unrelated servers or malformed entries", async () => {
+    const { isAgentmemoryMcpEntry } = await import("../src/cli/connect/util.js");
+    expect(isAgentmemoryMcpEntry({ command: "npx", args: ["-y", "some-other-mcp"] })).toBe(false);
+    expect(isAgentmemoryMcpEntry({ command: "x" })).toBe(false);
+    expect(isAgentmemoryMcpEntry(null)).toBe(false);
+    expect(isAgentmemoryMcpEntry("npx @agentmemory/mcp")).toBe(false);
+    // Substring match would wrongly accept a lookalike package.
+    expect(
+      isAgentmemoryMcpEntry({ command: "npx", args: ["-y", "@agentmemory/mcp-evil"] }),
+    ).toBe(false);
   });
 });
