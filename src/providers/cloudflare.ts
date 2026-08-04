@@ -36,7 +36,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 export class CloudflareProvider implements MemoryProvider {
   name = "cloudflare";
   private apiKey: string;
-  private model: string;
+  readonly model: string;
   private maxTokens: number;
   private baseUrl: string;
   private timeoutMs: number;
@@ -73,6 +73,16 @@ export class CloudflareProvider implements MemoryProvider {
           // ignore unknown keys, so sending both keeps every @cf model bounded.
           max_tokens: this.maxTokens,
           max_completion_tokens: this.maxTokens,
+          // DeepSeek V4 thinks by default, and its reasoning is billed as —
+          // and drawn from — the same output budget as the answer. At a
+          // small max_tokens the reasoning consumes the whole allowance and
+          // the response comes back with content:"" and
+          // finish_reason:"length". Every memory task here is structured
+          // extraction against a fixed schema, not a problem that rewards
+          // deliberation, so thinking is off unless asked for. Workers AI
+          // models ignore the field (verified across llama-3.1, llama-4-scout
+          // and gpt-oss-120b), so it is safe to send unconditionally.
+          thinking: { type: resolveThinking() },
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
@@ -80,6 +90,7 @@ export class CloudflareProvider implements MemoryProvider {
         }),
       },
       this.timeoutMs,
+      "CLOUDFLARE_TIMEOUT_MS (or AGENTMEMORY_LLM_TIMEOUT_MS)",
     );
 
     if (!response.ok) {
@@ -115,6 +126,21 @@ export class CloudflareProvider implements MemoryProvider {
     }
     return content;
   }
+}
+
+/**
+ * "enabled" | "disabled" for DeepSeek-style hybrid-thinking models.
+ *
+ * Defaults to disabled. Set AGENTMEMORY_THINKING=enabled to turn it back on
+ * — worth it only if a task genuinely benefits from deliberation, and only
+ * alongside a much larger MAX_TOKENS, since reasoning is spent from the same
+ * output budget as the answer.
+ */
+function resolveThinking(): "enabled" | "disabled" {
+  const raw = (getEnvVar("AGENTMEMORY_THINKING") || "").trim().toLowerCase();
+  return raw === "enabled" || raw === "true" || raw === "1"
+    ? "enabled"
+    : "disabled";
 }
 
 function resolveTimeout(): number {

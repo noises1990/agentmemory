@@ -47,7 +47,7 @@ const DEFAULT_TIMEOUT_MS = 60_000;
 export class OpenAIProvider implements MemoryProvider {
   name = "openai";
   private apiKey: string;
-  private model: string;
+  readonly model: string;
   private maxTokens: number;
   private baseUrl: string;
   private reasoningEffort?: string;
@@ -102,26 +102,19 @@ export class OpenAIProvider implements MemoryProvider {
     // OPENAI_TIMEOUT_MS keeps its v0.9.17 meaning (OpenAI-scoped alias,
     // takes precedence); when unset we fall through to
     // AGENTMEMORY_LLM_TIMEOUT_MS and finally the 60s default. See #446.
-    let response: Response;
-    try {
-      response = await fetchWithTimeout(
-        url,
-        {
-          method: "POST",
-          headers: buildAuthHeaders(this.apiKey, this.isAzure),
-          body: JSON.stringify(body),
-        },
-        this.timeoutMs,
-      );
-    } catch (err) {
-      const aborted = err instanceof Error && err.name === "AbortError";
-      if (aborted) {
-        throw new Error(
-          `OpenAI API request timed out after ${this.timeoutMs}ms — set OPENAI_TIMEOUT_MS (or AGENTMEMORY_LLM_TIMEOUT_MS) to raise the bound or check the provider status.`,
-        );
-      }
-      throw err;
-    }
+    // Timeout translation lives in fetchWithTimeout — the only layer that
+    // knows the bound fired. Passing the knob name keeps the OpenAI-specific
+    // guidance without a per-provider catch.
+    const response = await fetchWithTimeout(
+      url,
+      {
+        method: "POST",
+        headers: buildAuthHeaders(this.apiKey, this.isAzure),
+        body: JSON.stringify(body),
+      },
+      this.timeoutMs,
+      "OPENAI_TIMEOUT_MS (or AGENTMEMORY_LLM_TIMEOUT_MS)",
+    );
 
     if (!response.ok) {
       const text = await response.text();
