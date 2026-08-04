@@ -6,6 +6,18 @@ import { logger } from "../logger.js";
 import { safeAudit } from "../functions/audit.js";
 
 const DEBOUNCE_MS = 5000;
+/**
+ * Ceiling on how long a stream of adds may defer the flush.
+ *
+ * scheduleSave() was a pure debounce: every call cleared the pending timer
+ * and started a new one. Under a busy agent, observations arrive faster than
+ * DEBOUNCE_MS indefinitely, so the flush was rescheduled forever and the
+ * index never reached disk — the in-memory index grew for days while the
+ * shards on disk stayed at the last boot-time write, and every restart threw
+ * the difference away. Past this bound we stop resetting and let the pending
+ * timer fire, capping staleness at roughly MAX_DEFER_MS + DEBOUNCE_MS.
+ */
+const MAX_DEFER_MS = 60_000;
 const FAILURE_LOG_THROTTLE_MS = 60_000;
 const INDEX_PERSISTENCE_FUNCTION_ID = "mem::index-persistence";
 const BM25_KEY = "data";
@@ -67,6 +79,8 @@ function isValidShardDescriptor(
 
 export class IndexPersistence {
   private timer: ReturnType<typeof setTimeout> | null = null;
+  /** When the oldest currently-unflushed add was scheduled; 0 when idle. */
+  private pendingSince = 0;
   private lastFailureLogAt = 0;
 
   constructor(
@@ -77,12 +91,23 @@ export class IndexPersistence {
   ) {}
 
   scheduleSave(): void {
-    if (this.timer) clearTimeout(this.timer);
+    const now = Date.now();
+    if (this.timer) {
+      // Past the ceiling, leave the pending timer alone so it actually
+      // fires; resetting again is what let a busy daemon defer the flush
+      // indefinitely. See MAX_DEFER_MS.
+      if (now - this.pendingSince >= MAX_DEFER_MS) return;
+      clearTimeout(this.timer);
+    } else {
+      this.pendingSince = now;
+    }
     // setTimeout discards the returned promise, so any rejection inside
     // save() would surface as unhandledRejection and crash the process
     // under sustained iii-engine write timeouts (issue #204). Funnel
     // rejections through logFailure() instead.
     this.timer = setTimeout(() => {
+      this.timer = null;
+      this.pendingSince = 0;
       this.save().catch((err) => this.logFailure(err));
     }, DEBOUNCE_MS);
   }
@@ -92,6 +117,7 @@ export class IndexPersistence {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this.pendingSince = 0;
     try {
       await this.saveBm25Index(this.bm25.serialize());
       if (this.vector) {
@@ -127,6 +153,7 @@ export class IndexPersistence {
       clearTimeout(this.timer);
       this.timer = null;
     }
+    this.pendingSince = 0;
   }
 
   private logFailure(err: unknown): void {

@@ -6,7 +6,7 @@ import { withKeyedLock } from "../state/keyed-mutex.js";
 import { memoryToObservation } from "../state/memory-utils.js";
 import { deleteAccessLog } from "./access-tracker.js";
 import { recordAudit } from "./audit.js";
-import { getSearchIndex, vectorIndexAddGuarded, vectorIndexRemove, flushIndexSave } from "./search.js";
+import { getSearchIndex, vectorIndexAddGuarded, vectorIndexRemove, flushIndexSave, scheduleIndexSave } from "./search.js";
 import { getAgentId } from "../config.js";
 import { logger } from "../logger.js";
 
@@ -146,6 +146,7 @@ export function registerRememberFunction(sdk: ISdk, kv: StateKV): void {
           memory.title + " " + memory.content,
           { kind: "memory", logId: memory.id },
         );
+        scheduleIndexSave();
 
         if (supersededId) {
           await sdk.trigger({

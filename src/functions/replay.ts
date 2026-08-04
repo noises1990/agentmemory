@@ -15,7 +15,7 @@ import { parseJsonlText } from "../replay/jsonl-parser.js";
 import { projectTimeline, type Timeline } from "../replay/timeline.js";
 import { safeAudit } from "./audit.js";
 import { buildSyntheticCompression } from "./compress-synthetic.js";
-import { getSearchIndex } from "./search.js";
+import { getSearchIndex, scheduleIndexSave } from "./search.js";
 import { logger } from "../logger.js";
 
 export const MAX_FILES_DEFAULT = 200;
@@ -444,6 +444,9 @@ export function registerReplayFunctions(sdk: ISdk, kv: StateKV): void {
         );
         observationCount += parsed.observations.length;
         sessionIds.push(parsed.sessionId);
+        // Once per replayed file rather than per observation — the whole
+        // batch lands in one debounce window either way.
+        scheduleIndexSave();
 
         await deriveCrystalAndLessons(
           kv,

@@ -16,6 +16,11 @@ vi.mock("../src/functions/search.js", () => ({
     add: vi.fn(),
   }),
   vectorIndexAddGuarded: vi.fn().mockResolvedValue(false),
+  // mem::compress schedules an index flush after indexing. Omitting it here
+  // makes the import undefined, and the call throws inside the compress
+  // try/catch — surfacing as an opaque success:false rather than as a
+  // missing mock.
+  scheduleIndexSave: vi.fn(),
 }));
 
 const mockTrigger = vi.fn().mockResolvedValue(undefined);
