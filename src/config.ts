@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import pc from "picocolors";
+import { readEnvFile } from "./utils/env-file.js";
 import type {
   AgentMemoryConfig,
   ProviderConfig,
@@ -19,33 +19,8 @@ function safeParseInt(value: string | undefined, fallback: number): number {
 }
 
 const DATA_DIR = join(homedir(), ".agentmemory");
-const ENV_FILE = join(DATA_DIR, ".env");
 
 let warnPremiumModelShown = false;
-
-function loadEnvFile(): Record<string, string> {
-  if (!existsSync(ENV_FILE)) return {};
-  const content = readFileSync(ENV_FILE, "utf-8");
-  const vars: Record<string, string> = {};
-  for (const line of content.split("\n")) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    const eqIdx = trimmed.indexOf("=");
-    if (eqIdx === -1) continue;
-    const key = trimmed.slice(0, eqIdx).trim();
-    let val = trimmed.slice(eqIdx + 1).trim();
-    const quoteChar = val[0] === '"' || val[0] === "'" ? val[0] : "";
-    if (quoteChar) {
-      const closeIdx = val.indexOf(quoteChar, 1);
-      if (closeIdx !== -1) val = val.slice(1, closeIdx);
-    } else {
-      const hashIdx = val.indexOf(" #");
-      if (hashIdx !== -1) val = val.slice(0, hashIdx).trim();
-    }
-    vars[key] = val;
-  }
-  return vars;
-}
 
 function hasRealValue(v: string | undefined): v is string {
   return typeof v === "string" && v.trim().length > 0;
@@ -262,7 +237,7 @@ export function loadConfig(): AgentMemoryConfig {
 function getMergedEnv(
   overrides?: Record<string, string>,
 ): Record<string, string> {
-  const fileEnv = loadEnvFile();
+  const fileEnv = readEnvFile();
   return { ...fileEnv, ...process.env, ...overrides } as Record<string, string>;
 }
 

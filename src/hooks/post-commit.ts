@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-
+import { loadAgentMemoryEnv } from "../utils/env-file.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+
+// Hook processes inherit only the OS environment, never ~/.agentmemory/.env.
+// Load it before the module-scope process.env reads below, or a value set only
+// in that file (AGENTMEMORY_URL, AGENTMEMORY_SECRET, feature gates) reads as
+// undefined and the hook silently takes the disabled branch.
+loadAgentMemoryEnv();
 
 const exec = promisify(execFile);
 

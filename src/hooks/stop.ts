@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+import { loadAgentMemoryEnv } from "../utils/env-file.js";
+
+// Hook processes inherit only the OS environment, never ~/.agentmemory/.env.
+// Load it before the module-scope process.env reads below, or a value set only
+// in that file (AGENTMEMORY_URL, AGENTMEMORY_SECRET, feature gates) reads as
+// undefined and the hook silently takes the disabled branch.
+loadAgentMemoryEnv();
 
 // Inlined — see src/hooks/sdk-guard.ts for canonical version. Kept local
 // per-hook so tsdown does not emit a shared hashed chunk that would churn
