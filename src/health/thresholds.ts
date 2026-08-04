@@ -59,10 +59,19 @@ export function evaluateHealth(
     degraded = true;
   }
 
+  // Measured against the heap *limit*, not heapTotal.
+  //
+  // heapTotal is how much V8 has currently committed, and V8 grows it on
+  // demand up to the limit — so heapUsed/heapTotal sits near 90% on a
+  // perfectly healthy process and the dashboard permanently displayed
+  // `memory_heap_tight_92%` against a 25 MB heap. The number that can
+  // actually run out is heap_size_limit.
+  const heapCeiling =
+    snapshot.memory.heapLimit && snapshot.memory.heapLimit > 0
+      ? snapshot.memory.heapLimit
+      : snapshot.memory.heapTotal;
   const memPercent =
-    snapshot.memory.heapTotal > 0
-      ? (snapshot.memory.heapUsed / snapshot.memory.heapTotal) * 100
-      : 0;
+    heapCeiling > 0 ? (snapshot.memory.heapUsed / heapCeiling) * 100 : 0;
   const rss = snapshot.memory.rss ?? 0;
   const rssAboveFloor = rss >= cfg.memoryRssFloorBytes;
   const memMb = Math.round(rss / (1024 * 1024));
