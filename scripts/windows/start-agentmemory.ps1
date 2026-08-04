@@ -48,10 +48,20 @@ function Stop-AgentMemory {
   try { & agentmemory stop 2>&1 | Out-Null } catch { }
   Start-Sleep -Seconds 1
 
+  # Match BOTH worker entry points. The published package starts its worker
+  # from dist/index.mjs, but a fork run from source starts it from
+  # dist/cli.mjs -- the bare CLI *is* a worker ("(default) Start agentmemory
+  # worker"). Matching only index.mjs meant this never reaped a fork worker:
+  # the sweep reported success, the old worker kept running, and the new one
+  # registered all 268 function ids alongside it. The engine load-balances
+  # between same-named workers, so half of every call was served by the old
+  # process -- and when the older one was later killed, the survivor was left
+  # holding no HTTP routes and every endpoint 404'd.
   $stragglers = Get-CimInstance Win32_Process -Filter "Name='iii.exe' OR Name='node.exe'" |
     Where-Object {
       $_.Name -eq 'iii.exe' -or
-      $_.CommandLine -like '*agentmemory*dist*index.mjs*'
+      $_.CommandLine -like '*agentmemory*dist*index.mjs*' -or
+      $_.CommandLine -like '*agentmemory*dist*cli.mjs*'
     }
   foreach ($proc in $stragglers) {
     Write-Host "  reaping $($proc.Name) pid $($proc.ProcessId)"
