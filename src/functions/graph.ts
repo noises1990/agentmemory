@@ -15,6 +15,7 @@ import {
 } from "../prompts/graph-extraction.js";
 import { recordAudit } from "./audit.js";
 import { logger } from "../logger.js";
+import { isNonRetryableError } from "../providers/provider-errors.js";
 
 // #753: keep the response payload below the iii state channel ceiling.
 // 500 nodes + their incident edges hold well under the limit on the
@@ -181,8 +182,46 @@ function paginateFromSnapshot(
 // future extracts rebuild incrementally.
 const REBUILD_SAFE_NODE_CEILING = 25000;
 
+/**
+ * Identity key for a node, normalising the ways the same thing gets named.
+ *
+ * Nodes were keyed on the raw extracted name, so one file became several
+ * nodes depending on how the observation that mentioned it happened to
+ * spell the path. Measured on a five-session corpus: 259 file nodes
+ * containing 74 suffix-duplicate pairs — about 30% of them were a file
+ * already present under a different spelling. Observed variants of a single
+ * file:
+ *
+ *   X:\\Projects\agentmemory\src\cli\connect\continue.ts   (escaped, absolute)
+ *   x:/Projects/agentmemory/src/cli/connect/continue.ts    (lowercase drive)
+ *   src/cli/connect/continue.ts                            (repo-relative)
+ *
+ * Each got its own node with its own edges, so traversal reaching one never
+ * reached the others — the graph was fragmented exactly where it was meant
+ * to connect things.
+ *
+ * Only file paths are normalised. Concept and library names are prose and
+ * case can be meaningful, so they are keyed as-is.
+ */
+export function normalizeNodeName(type: string, name: string): string {
+  if (type !== "file") return name;
+  let s = String(name ?? "").trim();
+  // Collapse doubled separators left behind by JSON escaping round-trips.
+  const BACKSLASH = String.fromCharCode(92);
+  while (s.includes(BACKSLASH + BACKSLASH)) {
+    s = s.split(BACKSLASH + BACKSLASH).join(BACKSLASH);
+  }
+  s = s.split(BACKSLASH).join("/");
+  // Annotations the extractor sometimes appends, e.g. "build.gradle.kts (root)".
+  s = s.replace(/\s*\([^)]*\)\s*$/, "");
+  // Windows paths are case-insensitive; lowercase the drive letter only so
+  // genuinely case-sensitive POSIX paths are left alone.
+  s = s.replace(/^([A-Za-z]):\//, (_m, d: string) => `${d.toLowerCase()}:/`);
+  return s.replace(/\/+$/, "");
+}
+
 function nameIndexKey(type: string, name: string): string {
-  return `${type}|${name}`;
+  return `${type}|${normalizeNodeName(type, name)}`;
 }
 
 function edgeIndexKey(
@@ -271,6 +310,33 @@ function snapshotPushEdgeIfBothInTop(
   }
 }
 
+/**
+ * Cap on provenance ids retained per node/edge.
+ *
+ * These lists were unbounded: every extraction unioned in more ids and
+ * nothing ever removed any. Measured on a five-session corpus, provenance
+ * was **97.9% of all graph node bytes** — 633 nodes weighing 18.5 MB, with
+ * a single node carrying 1,270 ids and the median carrying 430. That is
+ * what pushed /agentmemory/export past the engine's response limit.
+ *
+ * Capping is not purely a size trade. graph-retrieval maps a matched node
+ * back to observations through this list, and a node pointing at 1,270
+ * observations — roughly two thirds of the corpus — cannot discriminate
+ * between them. Such hub nodes add candidates without adding signal. The
+ * tail that gets dropped is the least useful part of it.
+ *
+ * Most recent are kept: ids append newest-last, so the tail is the live
+ * context and the head is history the summaries already cover.
+ */
+const MAX_PROVENANCE_IDS = 50;
+
+export function capProvenance(ids: string[]): string[] {
+  const unique = [...new Set(ids)];
+  return unique.length <= MAX_PROVENANCE_IDS
+    ? unique
+    : unique.slice(unique.length - MAX_PROVENANCE_IDS);
+}
+
 function mergeNode(
   existing: GraphNode,
   incoming: GraphNode,
@@ -279,13 +345,11 @@ function mergeNode(
 ): GraphNode {
   return {
     ...existing,
-    sourceObservationIds: [
-      ...new Set([
-        ...existing.sourceObservationIds,
-        ...incoming.sourceObservationIds,
-        ...obsIds,
-      ]),
-    ],
+    sourceObservationIds: capProvenance([
+      ...existing.sourceObservationIds,
+      ...incoming.sourceObservationIds,
+      ...obsIds,
+    ]),
     properties: { ...existing.properties, ...incoming.properties },
     updatedAt: capturedAt,
   };
@@ -297,9 +361,10 @@ function mergeEdge(
 ): GraphEdge {
   return {
     ...existing,
-    sourceObservationIds: [
-      ...new Set([...existing.sourceObservationIds, ...obsIds]),
-    ],
+    sourceObservationIds: capProvenance([
+      ...existing.sourceObservationIds,
+      ...obsIds,
+    ]),
   };
 }
 
@@ -410,7 +475,7 @@ function parseGraphXml(
       type,
       name,
       properties,
-      sourceObservationIds: observationIds,
+      sourceObservationIds: capProvenance(observationIds),
       createdAt: now,
     });
   };
@@ -442,12 +507,55 @@ function parseGraphXml(
       sourceNodeId: sourceNode.id,
       targetNodeId: targetNode.id,
       weight: Math.max(0, Math.min(1, weight)),
-      sourceObservationIds: observationIds,
+      sourceObservationIds: capProvenance(observationIds),
       createdAt: now,
     });
   }
 
   return { nodes, edges };
+}
+
+const GRAPH_EXTRACT_ATTEMPTS = 2;
+
+/**
+ * Run the extraction call, retrying once on a transient failure.
+ *
+ * Graph extraction is the heaviest LLM call on the observation path, and a
+ * single failure used to discard its batch permanently: the caller logged
+ * the error and returned, and nothing ever re-queued those observations, so
+ * their nodes and edges were simply never extracted. Roughly one extraction
+ * in ten was lost this way, almost all of them provider timeouts — which are
+ * transient by definition and would have succeeded on a second attempt.
+ *
+ * Mirrors summarizeChunkWithRetry: two attempts, and an immediate bail on a
+ * rejected payload (413 context overflow, 400 malformed), where an identical
+ * retry can only fail identically while doubling the latency of an
+ * already-failing extraction.
+ *
+ * Retries only on a thrown error, deliberately not on an empty parse: a batch
+ * with nothing worth extracting is a legitimate result, and retrying it would
+ * spend a second call to be told the same thing.
+ */
+async function extractWithRetry(
+  provider: MemoryProvider,
+  prompt: string,
+): Promise<string> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= GRAPH_EXTRACT_ATTEMPTS; attempt++) {
+    try {
+      return await provider.compress(GRAPH_EXTRACTION_SYSTEM, prompt);
+    } catch (err) {
+      lastError = err;
+      logger.warn("Graph extraction LLM call failed", {
+        attempt,
+        attempts: GRAPH_EXTRACT_ATTEMPTS,
+        retryable: !isNonRetryableError(err),
+        error: err instanceof Error ? err.message : String(err),
+      });
+      if (isNonRetryableError(err)) break;
+    }
+  }
+  throw lastError;
 }
 
 export function registerGraphFunction(
@@ -472,10 +580,7 @@ export function registerGraphFunction(
       );
 
       try {
-        const response = await provider.compress(
-          GRAPH_EXTRACTION_SYSTEM,
-          prompt,
-        );
+        const response = await extractWithRetry(provider, prompt);
 
         const obsIds = data.observations.map((o) => o.id);
         const { nodes, edges } = parseGraphXml(response, obsIds);
