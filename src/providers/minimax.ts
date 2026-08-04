@@ -19,7 +19,7 @@ import { fetchWithTimeout } from './_fetch.js'
 export class MinimaxProvider implements MemoryProvider {
   name = 'minimax'
   private apiKey: string
-  private model: string
+  readonly model: string
   private maxTokens: number
   private baseUrl: string
 

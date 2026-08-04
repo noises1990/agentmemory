@@ -4,7 +4,7 @@ import { fetchWithTimeout } from "./_fetch.js";
 export class OpenRouterProvider implements MemoryProvider {
   name: string;
   private apiKey: string;
-  private model: string;
+  readonly model: string;
   private maxTokens: number;
   private baseUrl: string;
 

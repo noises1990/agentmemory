@@ -151,6 +151,13 @@ export type ProviderType = "agent-sdk" | "anthropic" | "cloudflare" | "gemini" |
 
 export interface MemoryProvider {
   name: string;
+  /**
+   * Model id in use, when the provider has one. Callers need it to size
+   * prompts against the model's context window — a fixed chunk size cannot
+   * survive the model being swapped in an env var. Optional because `noop`
+   * and test doubles have no model.
+   */
+  model?: string;
   compress(systemPrompt: string, userPrompt: string): Promise<string>;
   summarize(systemPrompt: string, userPrompt: string): Promise<string>;
   describeImage?(imageData: string, mimeType: string, prompt: string): Promise<string>;
@@ -204,6 +211,12 @@ export interface HealthSnapshot {
   memory: {
     heapUsed: number;
     heapTotal: number;
+    /**
+     * V8's hard ceiling (`heap_size_limit`). heapTotal is only what V8 has
+     * committed so far and grows on demand, so it is the wrong denominator
+     * for a "running out of memory" check. Optional for older snapshots.
+     */
+    heapLimit?: number;
     rss: number;
     external: number;
   };
@@ -314,6 +327,23 @@ export interface ExportData {
   memories: Memory[];
   summaries: SessionSummary[];
   profiles?: ProjectProfile[];
+  /**
+   * Present when the knowledge graph was left out of this export.
+   *
+   * The graph grows independently of session count, so it was the one part
+   * of an export that could push the response past the engine's invocation
+   * limit — at which point /agentmemory/export returned
+   * `500 Invocation stopped` even though the function itself had completed.
+   * Reported explicitly so a consumer can tell "no graph in this file" from
+   * "this install has no graph".
+   */
+  graphOmitted?: {
+    reason: "too_large" | "not_requested";
+    nodes: number;
+    edges: number;
+    bytes: number;
+    hint: string;
+  };
   graphNodes?: GraphNode[];
   graphEdges?: GraphEdge[];
   semanticMemories?: SemanticMemory[];

@@ -4,7 +4,7 @@ import type { MemoryProvider } from '../types.js'
 export class AnthropicProvider implements MemoryProvider {
   name = 'anthropic'
   private client: Anthropic
-  private model: string
+  readonly model: string
   private maxTokens: number
 
   constructor(apiKey: string, model: string, maxTokens: number, baseURL?: string) {
