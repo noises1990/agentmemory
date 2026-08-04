@@ -83,6 +83,18 @@ export class CloudflareProvider implements MemoryProvider {
           // models ignore the field (verified across llama-3.1, llama-4-scout
           // and gpt-oss-120b), so it is safe to send unconditionally.
           thinking: { type: resolveThinking() },
+          // `thinking` is DeepSeek-shaped and gpt-oss ignores it — the note
+          // above records that Workers AI models drop the field, which is
+          // exactly why it never suppressed anything on gpt-oss. That family
+          // reads reasoning_effort instead, and defaults to reasoning ON, so
+          // graph extraction spent its entire 8192-token output budget
+          // thinking and returned content:"" with finish_reason:"length".
+          //
+          // Same argument as `thinking`: these are structured extractions
+          // against a fixed schema, not problems that reward deliberation.
+          // Sent unconditionally on the same grounds — models that do not
+          // know the field ignore it.
+          reasoning_effort: resolveReasoningEffort(),
           messages: [
             { role: "system", content: systemPrompt },
             { role: "user", content: userPrompt },
@@ -141,6 +153,22 @@ function resolveThinking(): "enabled" | "disabled" {
   return raw === "enabled" || raw === "true" || raw === "1"
     ? "enabled"
     : "disabled";
+}
+
+/**
+ * Reasoning effort for the gpt-oss family, which reasons by default and bills
+ * it from the output budget.
+ *
+ * Defaults to "low" rather than off: gpt-oss treats reasoning as part of how
+ * it answers, and the documented values are low/medium/high. Raise it with
+ * CLOUDFLARE_REASONING_EFFORT only alongside a much larger MAX_TOKENS, for
+ * the same reason AGENTMEMORY_THINKING carries that warning.
+ */
+export function resolveReasoningEffort(): "low" | "medium" | "high" {
+  const raw = (getEnvVar("CLOUDFLARE_REASONING_EFFORT") || "")
+    .trim()
+    .toLowerCase();
+  return raw === "medium" || raw === "high" ? raw : "low";
 }
 
 function resolveTimeout(): number {
