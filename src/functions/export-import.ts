@@ -32,8 +32,14 @@ import { recordAudit } from "./audit.js";
 import { logger } from "../logger.js";
 
 export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
-  sdk.registerFunction("mem::export", 
-    async (data?: { maxSessions?: number; offset?: number }) => {
+  // Ceiling for the serialized graph. Chosen from observed behaviour, not
+  // from a documented limit: a 7.4 MB export round-tripped fine, a ~27 MB
+  // one failed instantly. 4 MB leaves room for sessions, observations and
+  // summaries underneath it.
+  const MAX_GRAPH_BYTES = 4 * 1024 * 1024;
+
+  sdk.registerFunction("mem::export",
+    async (data?: { maxSessions?: number; offset?: number; includeGraph?: boolean }) => {
       const rawMax = Number(data?.maxSessions);
       const maxSessions = Number.isFinite(rawMax) && rawMax > 0 ? Math.min(Math.floor(rawMax), 1000) : undefined;
       const rawOffset = Number(data?.offset);
@@ -108,6 +114,32 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
         kv.list<AccessLogExport>(KV.accessLog).catch(() => []),
       ]);
 
+      // The knowledge graph is the one unbounded part of an export, and it
+      // grows independently of how many sessions you ask for — so
+      // `?maxSessions=1` did nothing to shrink it. Once it passed a few MB
+      // the whole endpoint started returning
+      // `500 {"error":"Invocation stopped"}` in about a second: the
+      // function completed and logged "Export complete", then the response
+      // was too large for the engine's invocation channel to carry back.
+      // A 7.4 MB export succeeded; a ~27 MB one did not.
+      //
+      // That mattered more than a broken backup: export -> filter ->
+      // import(replace) is how sessions get deleted, so a graph that grew
+      // past the ceiling silently took session deletion with it.
+      //
+      // The graph is therefore included only while it fits, and its absence
+      // is reported rather than left to be inferred from a missing key.
+      // `includeGraph: false` skips it outright; `true` forces it and
+      // accepts the risk.
+      const graphPayloadBytes =
+        graphNodes.length > 0 || graphEdges.length > 0
+          ? JSON.stringify({ graphNodes, graphEdges }).length
+          : 0;
+      const graphRequested = data?.includeGraph !== false;
+      const graphFits =
+        data?.includeGraph === true || graphPayloadBytes <= MAX_GRAPH_BYTES;
+      const withGraph = graphRequested && graphFits;
+
       const exportData: ExportData = {
         version: VERSION,
         exportedAt: new Date().toISOString(),
@@ -116,8 +148,20 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
         memories,
         summaries,
         profiles: profiles.length > 0 ? profiles : undefined,
-        graphNodes: graphNodes.length > 0 ? graphNodes : undefined,
-        graphEdges: graphEdges.length > 0 ? graphEdges : undefined,
+        graphNodes: withGraph && graphNodes.length > 0 ? graphNodes : undefined,
+        graphEdges: withGraph && graphEdges.length > 0 ? graphEdges : undefined,
+        graphOmitted: !withGraph && graphPayloadBytes > 0
+          ? {
+              reason: graphRequested ? "too_large" : "not_requested",
+              nodes: graphNodes.length,
+              edges: graphEdges.length,
+              bytes: graphPayloadBytes,
+              // Reassurance that this is not silent data loss: import's
+              // replace strategy only clears what the payload carries, so
+              // re-importing a graph-less export leaves the graph intact.
+              hint: "Re-run with includeGraph=true to force inclusion. Importing this file will not delete the existing graph.",
+            }
+          : undefined,
         semanticMemories:
           semanticMemories.length > 0 ? semanticMemories : undefined,
         proceduralMemories:
@@ -282,56 +326,100 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
         for (const s of existingSummaries) {
           await kv.delete(KV.summaries, s.sessionId);
         }
-        for (const a of await kv.list<Action>(KV.actions).catch(() => [])) {
-          await kv.delete(KV.actions, a.id);
+        if (importData.actions) {
+          for (const a of await kv.list<Action>(KV.actions).catch(() => [])) {
+            await kv.delete(KV.actions, a.id);
+          }
         }
-        for (const e of await kv.list<ActionEdge>(KV.actionEdges).catch(() => [])) {
-          await kv.delete(KV.actionEdges, e.id);
+        if (importData.actionEdges) {
+          for (const e of await kv.list<ActionEdge>(KV.actionEdges).catch(() => [])) {
+            await kv.delete(KV.actionEdges, e.id);
+          }
         }
-        for (const r of await kv.list<Routine>(KV.routines).catch(() => [])) {
-          await kv.delete(KV.routines, r.id);
+        if (importData.routines) {
+          for (const r of await kv.list<Routine>(KV.routines).catch(() => [])) {
+            await kv.delete(KV.routines, r.id);
+          }
         }
-        for (const s of await kv.list<Signal>(KV.signals).catch(() => [])) {
-          await kv.delete(KV.signals, s.id);
+        if (importData.signals) {
+          for (const s of await kv.list<Signal>(KV.signals).catch(() => [])) {
+            await kv.delete(KV.signals, s.id);
+          }
         }
-        for (const c of await kv.list<Checkpoint>(KV.checkpoints).catch(() => [])) {
-          await kv.delete(KV.checkpoints, c.id);
+        if (importData.checkpoints) {
+          for (const c of await kv.list<Checkpoint>(KV.checkpoints).catch(() => [])) {
+            await kv.delete(KV.checkpoints, c.id);
+          }
         }
-        for (const s of await kv.list<Sentinel>(KV.sentinels).catch(() => [])) {
-          await kv.delete(KV.sentinels, s.id);
+        if (importData.sentinels) {
+          for (const s of await kv.list<Sentinel>(KV.sentinels).catch(() => [])) {
+            await kv.delete(KV.sentinels, s.id);
+          }
         }
-        for (const s of await kv.list<Sketch>(KV.sketches).catch(() => [])) {
-          await kv.delete(KV.sketches, s.id);
+        if (importData.sketches) {
+          for (const s of await kv.list<Sketch>(KV.sketches).catch(() => [])) {
+            await kv.delete(KV.sketches, s.id);
+          }
         }
-        for (const c of await kv.list<Crystal>(KV.crystals).catch(() => [])) {
-          await kv.delete(KV.crystals, c.id);
+        if (importData.crystals) {
+          for (const c of await kv.list<Crystal>(KV.crystals).catch(() => [])) {
+            await kv.delete(KV.crystals, c.id);
+          }
         }
-        for (const f of await kv.list<Facet>(KV.facets).catch(() => [])) {
-          await kv.delete(KV.facets, f.id);
+        if (importData.facets) {
+          for (const f of await kv.list<Facet>(KV.facets).catch(() => [])) {
+            await kv.delete(KV.facets, f.id);
+          }
         }
-        for (const l of await kv.list<Lesson>(KV.lessons).catch(() => [])) {
-          await kv.delete(KV.lessons, l.id);
+        if (importData.lessons) {
+          for (const l of await kv.list<Lesson>(KV.lessons).catch(() => [])) {
+            await kv.delete(KV.lessons, l.id);
+          }
         }
-        for (const i of await kv.list<Insight>(KV.insights).catch(() => [])) {
-          await kv.delete(KV.insights, i.id);
+        if (importData.insights) {
+          for (const i of await kv.list<Insight>(KV.insights).catch(() => [])) {
+            await kv.delete(KV.insights, i.id);
+          }
         }
-        for (const n of await kv.list<{ id: string }>(KV.graphNodes).catch(() => [])) {
-          await kv.delete(KV.graphNodes, n.id);
+        // Only cleared when the payload actually carries a replacement.
+        //
+        // "replace" used to wipe the graph unconditionally, while export
+        // may legitimately omit it (it is skipped once it exceeds the
+        // response ceiling). That combination turned the documented
+        // backup-and-restore round trip into silent, unrecoverable graph
+        // deletion — the export file had no graph to put back.
+        //
+        // Same reasoning applies to every scope below: replace what you
+        // were given, leave the rest alone.
+        if (importData.graphNodes) {
+          for (const n of await kv.list<{ id: string }>(KV.graphNodes).catch(() => [])) {
+            await kv.delete(KV.graphNodes, n.id);
+          }
         }
-        for (const e of await kv.list<{ id: string }>(KV.graphEdges).catch(() => [])) {
-          await kv.delete(KV.graphEdges, e.id);
+        if (importData.graphEdges) {
+          for (const e of await kv.list<{ id: string }>(KV.graphEdges).catch(() => [])) {
+            await kv.delete(KV.graphEdges, e.id);
+          }
         }
-        for (const s of await kv.list<{ id: string }>(KV.semantic).catch(() => [])) {
-          await kv.delete(KV.semantic, s.id);
+        if (importData.semanticMemories) {
+          for (const s of await kv.list<{ id: string }>(KV.semantic).catch(() => [])) {
+            await kv.delete(KV.semantic, s.id);
+          }
         }
-        for (const p of await kv.list<{ id: string }>(KV.procedural).catch(() => [])) {
-          await kv.delete(KV.procedural, p.id);
+        if (importData.proceduralMemories) {
+          for (const p of await kv.list<{ id: string }>(KV.procedural).catch(() => [])) {
+            await kv.delete(KV.procedural, p.id);
+          }
         }
-        for (const profile of await kv.list<ProjectProfile>(KV.profiles).catch(() => [])) {
-          await kv.delete(KV.profiles, profile.project);
+        if (importData.profiles) {
+          for (const profile of await kv.list<ProjectProfile>(KV.profiles).catch(() => [])) {
+            await kv.delete(KV.profiles, profile.project);
+          }
         }
-        for (const a of await kv.list<AccessLogExport>(KV.accessLog).catch(() => [])) {
-          await kv.delete(KV.accessLog, a.memoryId);
+        if (importData.accessLogs) {
+          for (const a of await kv.list<AccessLogExport>(KV.accessLog).catch(() => [])) {
+            await kv.delete(KV.accessLog, a.memoryId);
+          }
         }
       }
 

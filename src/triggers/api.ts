@@ -1312,7 +1312,12 @@ export function registerApiTriggers(
       // Pass through the query-string pagination so callers can chunk.
       const rawMax = req.query_params?.["maxSessions"];
       const rawOffset = req.query_params?.["offset"];
-      const payload: { maxSessions?: number; offset?: number } = {};
+      const rawGraph = req.query_params?.["includeGraph"];
+      const payload: {
+        maxSessions?: number;
+        offset?: number;
+        includeGraph?: boolean;
+      } = {};
       if (typeof rawMax === "string") {
         const n = Number(rawMax);
         if (Number.isInteger(n) && n > 0) payload.maxSessions = n;
@@ -1321,6 +1326,12 @@ export function registerApiTriggers(
         const n = Number(rawOffset);
         if (Number.isInteger(n) && n >= 0) payload.offset = n;
       }
+      // ?includeGraph=false skips the graph; =true forces it even when it
+      // exceeds the size ceiling that otherwise drops it. Unset lets
+      // mem::export decide by size — which is what keeps this endpoint from
+      // 500ing once the graph outgrows the invocation channel.
+      if (rawGraph === "true") payload.includeGraph = true;
+      else if (rawGraph === "false") payload.includeGraph = false;
       const result = await sdk.trigger({
         function_id: "mem::export",
         payload,
