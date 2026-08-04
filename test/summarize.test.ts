@@ -335,9 +335,9 @@ describe("mem::summarize chunking", () => {
         (provider as any).calls.push({ system, user });
         i += 1;
         if (i === 1) return summaryXml({ title: "ok1" });
-        // chunk 2: both attempts throw (e.g. provider 400)
-        if (i === 2 || i === 3) throw new Error("OpenAI API error (400): content rejected");
-        if (i === 4) return summaryXml({ title: "ok3" });
+        // chunk 2 throws a 400 — the request itself was rejected.
+        if (i === 2) throw new Error("OpenAI API error (400): content rejected");
+        if (i === 3) return summaryXml({ title: "ok3" });
         return summaryXml({ title: "merged-with-skip" });
       },
     };
@@ -350,8 +350,15 @@ describe("mem::summarize chunking", () => {
     const result: any = await handler({ sessionId: "ses_net" });
 
     expect(result.success).toBe(true);
-    // 1 ok + 2 fail + 1 ok + 1 reduce = 5 calls.
-    expect((provider as any).calls.length).toBe(5);
+    // 1 ok + 1 fail + 1 ok + 1 reduce = 4 calls.
+    //
+    // This asserted 5 while every failure was retried once. A 4xx rejects
+    // the request, so re-sending it unchanged buys a second identical
+    // rejection — latency and quota spent to reach the same skip. The
+    // behaviour under test (a persistently-bad chunk is skipped rather
+    // than failing the whole summary) is unchanged; only the wasted
+    // attempt is gone.
+    expect((provider as any).calls.length).toBe(4);
     const stored: any = await kv.get("summaries", "ses_net");
     expect(stored?.title).toBe("merged-with-skip");
   });

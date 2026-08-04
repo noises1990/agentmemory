@@ -22,19 +22,37 @@ Rules:
 - List all files that were created or modified
 - Concepts should be searchable terms for future context retrieval`
 
-export function buildSummaryPrompt(observations: Array<{
+export interface PromptObservation {
   type: string
   title: string
   facts: string[]
   narrative: string
   files: string[]
   concepts: string[]
-}>): string {
-  const lines = observations.map((obs, i) => {
-    const facts = obs.facts.map((f) => `  - ${f}`).join('\n')
-    return `[${i + 1}] ${obs.type}: ${obs.title}\n${obs.narrative}\nFacts:\n${facts}\nFiles: ${obs.files.join(', ')}`
-  })
-  return `Session observations (${observations.length} total):\n\n${lines.join('\n\n---\n\n')}`
+}
+
+/** Separator between rendered observations. */
+export const OBSERVATION_SEPARATOR = '\n\n---\n\n'
+
+/**
+ * Render one observation exactly as it appears in the prompt.
+ *
+ * Exported so the chunker in summarize.ts can measure the true cost of each
+ * observation instead of assuming a per-observation average. Observation
+ * sizes vary by more than an order of magnitude, so an average silently
+ * overshoots the model's context window on any session with a few large
+ * entries — which is how every summary of a real session came to fail with
+ * HTTP 413. Sharing the renderer keeps the measurement from drifting away
+ * from what is actually sent.
+ */
+export function renderObservation(obs: PromptObservation, index: number): string {
+  const facts = obs.facts.map((f) => `  - ${f}`).join('\n')
+  return `[${index + 1}] ${obs.type}: ${obs.title}\n${obs.narrative}\nFacts:\n${facts}\nFiles: ${obs.files.join(', ')}`
+}
+
+export function buildSummaryPrompt(observations: PromptObservation[]): string {
+  const lines = observations.map((obs, i) => renderObservation(obs, i))
+  return `Session observations (${observations.length} total):\n\n${lines.join(OBSERVATION_SEPARATOR)}`
 }
 
 export const REDUCE_SYSTEM = `You are merging multiple partial summaries of the SAME coding session into one final session summary. The partials are chronological chunks of one continuous session — not separate sessions.

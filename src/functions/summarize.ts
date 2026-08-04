@@ -12,7 +12,15 @@ import {
   buildSummaryPrompt,
   REDUCE_SYSTEM,
   buildReducePrompt,
+  renderObservation,
+  OBSERVATION_SEPARATOR,
 } from "../prompts/summary.js";
+import {
+  promptCharBudget,
+  resolveContextWindow,
+  getMaxOutputTokens,
+} from "../providers/context-windows.js";
+import { isNonRetryableError } from "../providers/provider-errors.js";
 import { getXmlTag, getXmlChildren } from "../prompts/xml.js";
 import { SummaryOutputSchema } from "../eval/schemas.js";
 import { validateOutput } from "../eval/validator.js";
@@ -21,10 +29,6 @@ import type { MetricsStore } from "../eval/metrics-store.js";
 import { safeAudit } from "./audit.js";
 import { logger } from "../logger.js";
 
-// Per-chunk observation budget when a session is too large to fit in one
-// LLM call. Default ≈ 50k input tokens per chunk at ~110 tok/obs — fits
-// comfortably in 128k-window models. Override via SUMMARIZE_CHUNK_SIZE.
-const CHUNK_SIZE_DEFAULT = 400;
 // Concurrent in-flight chunk calls. 6 keeps a 100-chunk session under
 // iii's 180s function-invocation timeout at ~8s/call while staying
 // inside generous-but-not-unlimited provider rate limits (well below
@@ -36,11 +40,57 @@ const CHUNK_CONCURRENCY_DEFAULT = 6;
 // to parse — a half-blind narrative is worse than a clean error.
 const MAX_SKIP_RATIO = 0.5;
 
-function getChunkSize(): number {
+/**
+ * Optional hard ceiling on observations per chunk.
+ *
+ * There is deliberately no default. Chunking is sized by the model's
+ * context window (see buildChunks); SUMMARIZE_CHUNK_SIZE only exists to cap
+ * it further. The previous default of 400 was a constant tuned for
+ * 128k-window models that silently produced 42-49k-token prompts against a
+ * 32k model, failing every summary with HTTP 413 before the provider did
+ * any work.
+ */
+function getChunkSizeCap(): number {
   const raw = process.env.SUMMARIZE_CHUNK_SIZE;
-  if (!raw) return CHUNK_SIZE_DEFAULT;
+  if (!raw) return Number.POSITIVE_INFINITY;
   const n = parseInt(raw, 10);
-  return Number.isFinite(n) && n > 0 ? n : CHUNK_SIZE_DEFAULT;
+  return Number.isFinite(n) && n > 0 ? n : Number.POSITIVE_INFINITY;
+}
+
+/**
+ * Split observations so that each chunk's rendered prompt fits the model's
+ * context window, measuring each observation with the same renderer the
+ * prompt builder uses.
+ *
+ * A single observation larger than the whole budget still gets its own
+ * chunk: it will probably fail, but isolating it means it fails alone
+ * instead of poisoning a chunk full of usable neighbours.
+ */
+function buildChunks(
+  compressed: CompressedObservation[],
+  model: string,
+): CompressedObservation[][] {
+  const budget = promptCharBudget(model, getMaxOutputTokens());
+  const cap = getChunkSizeCap();
+  const sep = OBSERVATION_SEPARATOR.length;
+
+  const chunks: CompressedObservation[][] = [];
+  let current: CompressedObservation[] = [];
+  let currentChars = 0;
+
+  for (const obs of compressed) {
+    const cost = renderObservation(obs, current.length).length + sep;
+    const wouldOverflow = currentChars + cost > budget;
+    if (current.length > 0 && (wouldOverflow || current.length >= cap)) {
+      chunks.push(current);
+      current = [];
+      currentChars = 0;
+    }
+    current.push(obs);
+    currentChars += cost;
+  }
+  if (current.length > 0) chunks.push(current);
+  return chunks;
 }
 
 function getChunkConcurrency(): number {
@@ -85,16 +135,21 @@ async function summarizeChunkWithRetry(
         attempt,
         error: err instanceof Error ? err.message : String(err),
       });
+      // Retrying a rejected payload re-sends the identical prompt for an
+      // identical rejection. It cannot succeed, it doubles the latency of
+      // an already-failing summary, and — before the breaker learned to
+      // ignore these — each wasted attempt counted as provider ill-health.
+      if (isNonRetryableError(err)) return null;
     }
   }
   return null;
 }
 
-// Returns the final summary XML string. For sessions ≤ chunk size, this is
-// a single LLM call (legacy behavior). For larger sessions, observations
-// are split into chunks processed in parallel batches, each chunk retried
-// once on parse failure, persistently-bad chunks skipped, and remaining
-// partials merged via a reduce call.
+// Returns the final summary XML string. Observations are packed into as few
+// chunks as the model's context window allows; a session that fits in one
+// chunk is a single call. Larger sessions are processed in parallel batches,
+// each chunk retried once on parse failure, persistently-bad chunks skipped,
+// and remaining partials merged via a reduce call.
 async function produceSummaryXml(
   provider: MemoryProvider,
   compressed: CompressedObservation[],
@@ -106,8 +161,10 @@ async function produceSummaryXml(
   chunks: number;
   skipped?: number;
 }> {
-  const chunkSize = getChunkSize();
-  if (compressed.length <= chunkSize) {
+  const model = provider.model ?? "";
+  const chunks = buildChunks(compressed, model);
+
+  if (chunks.length <= 1) {
     const response = await provider.summarize(
       SUMMARY_SYSTEM,
       buildSummaryPrompt(compressed),
@@ -115,15 +172,13 @@ async function produceSummaryXml(
     return { response, mode: "single", chunks: 1 };
   }
 
-  const chunks: CompressedObservation[][] = [];
-  for (let i = 0; i < compressed.length; i += chunkSize) {
-    chunks.push(compressed.slice(i, i + chunkSize));
-  }
   const concurrency = getChunkConcurrency();
   logger.info("Summarize chunking session", {
     sessionId,
     chunks: chunks.length,
-    chunkSize,
+    contextWindow: resolveContextWindow(model),
+    model: model || "unknown",
+    chunkSizes: chunks.map((c) => c.length),
     concurrency,
     totalObservations: compressed.length,
   });
@@ -150,7 +205,6 @@ async function produceSummaryXml(
   }
 
   const skipped = partialByIdx.filter((p) => p === null).length;
-  const partials = partialByIdx.filter((p): p is SessionSummary => p !== null);
 
   if (skipped > Math.floor(chunks.length * MAX_SKIP_RATIO)) {
     throw new Error(
@@ -165,18 +219,31 @@ async function produceSummaryXml(
     });
   }
 
-  const reduceInput = partials.map((p) => {
-    const originalIdx = partialByIdx.indexOf(p);
-    return {
-      title: p.title,
-      narrative: p.narrative,
-      keyDecisions: p.keyDecisions,
-      filesModified: p.filesModified,
-      concepts: p.concepts,
-      obsRangeStart: originalIdx * chunkSize + 1,
-      obsRangeEnd: Math.min((originalIdx + 1) * chunkSize, compressed.length),
-    };
-  });
+  // Chunks are no longer uniform — they are packed to fill the context
+  // window — so ranges are accumulated from the real chunk lengths rather
+  // than multiplied out from a fixed size.
+  const rangeStart: number[] = [];
+  let offset = 0;
+  for (const chunk of chunks) {
+    rangeStart.push(offset);
+    offset += chunk.length;
+  }
+
+  const reduceInput = partialByIdx.flatMap((p, idx) =>
+    p === null
+      ? []
+      : [
+          {
+            title: p.title,
+            narrative: p.narrative,
+            keyDecisions: p.keyDecisions,
+            filesModified: p.filesModified,
+            concepts: p.concepts,
+            obsRangeStart: rangeStart[idx]! + 1,
+            obsRangeEnd: rangeStart[idx]! + chunks[idx]!.length,
+          },
+        ],
+  );
   const response = await provider.summarize(
     REDUCE_SYSTEM,
     buildReducePrompt(reduceInput),

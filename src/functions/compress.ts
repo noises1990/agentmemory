@@ -12,16 +12,22 @@ import { StateKV } from "../state/kv.js";
 import {
   COMPRESSION_SYSTEM,
   buildCompressionPrompt,
+  compressionBudget,
 } from "../prompts/compression.js";
 import { VISION_DESCRIPTION_PROMPT } from "../prompts/vision.js";
 import { getXmlTag, getXmlChildren } from "../prompts/xml.js";
-import { getSearchIndex, vectorIndexAddGuarded } from "./search.js";
+import {
+  getSearchIndex,
+  vectorIndexAddGuarded,
+  scheduleIndexSave,
+} from "./search.js";
 import { CompressOutputSchema } from "../eval/schemas.js";
 import { validateOutput } from "../eval/validator.js";
 import { scoreCompression } from "../eval/quality.js";
 import { compressWithRetry } from "../eval/self-correct.js";
 import type { MetricsStore } from "../eval/metrics-store.js";
 import { logger } from "../logger.js";
+import { promptCharBudget, getMaxOutputTokens } from "../providers/context-windows.js";
 
 const VALID_TYPES = new Set<string>([
   "file_read",
@@ -108,16 +114,27 @@ export function registerCompressFunction(
         }
       }
 
-      const prompt = buildCompressionPrompt({
-        hookType: data.raw.hookType,
-        toolName: data.raw.toolName,
-        toolInput: data.raw.toolInput,
-        toolOutput: imageDescription
-          ? `[Image Description]: ${imageDescription}\n\n${data.raw.toolOutput ?? ""}`
-          : data.raw.toolOutput,
-        userPrompt: data.raw.userPrompt,
-        timestamp: data.raw.timestamp,
-      });
+      // Truncation limits scale with the model's context window instead of
+      // being fixed at 4 KB per field. On a 1M-token model that is the
+      // difference between compressing a whole tool result and compressing
+      // its first page — and compression is the only stage that ever sees
+      // the raw observation, so what it drops is unrecoverable downstream.
+      const budget = compressionBudget(
+        promptCharBudget(provider.model ?? "", getMaxOutputTokens()),
+      );
+      const prompt = buildCompressionPrompt(
+        {
+          hookType: data.raw.hookType,
+          toolName: data.raw.toolName,
+          toolInput: data.raw.toolInput,
+          toolOutput: imageDescription
+            ? `[Image Description]: ${imageDescription}\n\n${data.raw.toolOutput ?? ""}`
+            : data.raw.toolOutput,
+          userPrompt: data.raw.userPrompt,
+          timestamp: data.raw.timestamp,
+        },
+        budget,
+      );
 
       try {
         const validator = (response: string) => {
@@ -191,6 +208,11 @@ export function registerCompressFunction(
           compressed.title + " " + (compressed.narrative || ""),
           { kind: "observation", logId: compressed.id },
         );
+
+        // Both indexes only just changed in memory. Nothing else on the
+        // observation path persists them, so without this the additions
+        // survive only until the process exits.
+        scheduleIndexSave();
 
         const streamResults = await Promise.allSettled([
           sdk.trigger({
