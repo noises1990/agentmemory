@@ -1,0 +1,20 @@
+{
+  // Editor/typecheck config for the repo's helper scripts.
+  //
+  // Same reason as test/tsconfig.json: the root config only includes
+  // "src/**/*", so anything under scripts/ lands outside every TypeScript
+  // project and loses @types/node — `process`, `node:fs` and friends all
+  // report as "Cannot find name". These run via tsx, not the build.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": "..",
+    "types": ["node"],
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["**/*.ts", "../src/**/*.ts"]
+}

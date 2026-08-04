@@ -1,0 +1,31 @@
+{
+  // Editor/typecheck config for the test suite.
+  //
+  // The root tsconfig.json excludes "test" because it is a *build* config:
+  // rootDir is "src" and declaration output goes to dist, so pulling test
+  // files into it would emit .d.ts for tests and error with "file is not
+  // under rootDir". But excluding them left every test file outside any
+  // TypeScript project, so the language server fell back to an inferred
+  // project with no @types/node — which is why `process`, `require`,
+  // `__dirname` and even `node:fs` imports showed as "Cannot find name"
+  // across the suite. Nothing was actually broken; vitest compiles these
+  // fine. The errors were purely an artefact of the missing project.
+  //
+  // TypeScript resolves a file to the nearest enclosing tsconfig.json, so
+  // this file adopts everything under test/ without touching the build.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    // Type-check only. No rootDir/outDir/declaration constraints apply.
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": "..",
+    "types": ["node"],
+    // Tests legitimately keep fixtures and helpers around that a given
+    // case may not use; failing the project over that is noise.
+    "noUnusedLocals": false,
+    "noUnusedParameters": false
+  },
+  "include": ["**/*.ts", "../src/**/*.ts"]
+}

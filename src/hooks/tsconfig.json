@@ -1,0 +1,19 @@
+{
+  // Editor/typecheck config for the hook scripts.
+  //
+  // The root tsconfig.json excludes "src/hooks" from the build, which also
+  // left these files outside any TypeScript project — so the language
+  // server reported "Cannot find name 'node:fs'" and friends here for the
+  // same reason it did across test/: no project, therefore no @types/node.
+  // This adopts them for editing without adding them to the build output.
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "rootDir": "../..",
+    "types": ["node"]
+  },
+  "include": ["**/*.ts", "../**/*.ts"]
+}
