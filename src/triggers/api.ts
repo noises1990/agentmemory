@@ -1674,6 +1674,40 @@ export function registerApiTriggers(
     config: { api_path: "/agentmemory/graph/build", http_method: "POST" },
   });
 
+  sdk.registerFunction("api::graph-import-graphify",
+    async (req: ApiRequest<{ path?: string; cwd?: string }>): Promise<Response> => {
+      const authErr = checkAuth(req, secret);
+      if (authErr) return authErr;
+      const { path, cwd } = req.body ?? {};
+      if (
+        (path !== undefined && typeof path !== "string") ||
+        (cwd !== undefined && typeof cwd !== "string")
+      ) {
+        return {
+          status_code: 400,
+          body: { error: "path and cwd must be strings when provided" },
+        };
+      }
+      try {
+        const result = await sdk.trigger({
+          function_id: "mem::graph::import-graphify",
+          payload: {
+            ...(path !== undefined ? { path } : {}),
+            ...(cwd !== undefined ? { cwd } : {}),
+          },
+        });
+        return { status_code: 200, body: result };
+      } catch {
+        return graphDisabledResponse();
+      }
+    },
+  );
+  sdk.registerTrigger({
+    type: "http",
+    function_id: "api::graph-import-graphify",
+    config: { api_path: "/agentmemory/graph/import-graphify", http_method: "POST" },
+  });
+
   sdk.registerFunction("api::consolidate-pipeline",
     async (req: ApiRequest<{ tier?: string }>): Promise<Response> => {
       const authErr = checkAuth(req, secret);
