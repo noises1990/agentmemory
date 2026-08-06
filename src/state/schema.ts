@@ -72,6 +72,14 @@ export const KV = {
   // #771: tracks the most recent smart-search call per session, used by
   // the followup-rate diagnostic. Key = sessionId. TTL-swept hourly.
   recentSearches: "mem:recent-searches",
+  // Markers for observations/memories whose embedding call failed. The
+  // vector-index write path soft-fails by design (a downed embedder must
+  // not break the save), which used to make the loss invisible: the row
+  // persisted, BM25 kept working, and semantic recall silently degraded.
+  // Key = the observation/memory id, value = EmbeddingFailure. Written on
+  // failure, deleted once the id is embedded, so scope size is a live
+  // count of known-unembedded rows. Additive — no record schema changes.
+  embeddingFailures: "mem:emb-failures",
 } as const;
 
 export const STREAM = {

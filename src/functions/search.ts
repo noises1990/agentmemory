@@ -74,6 +74,62 @@ export async function flushIndexSave(): Promise<void> {
   await indexPersistence?.save();
 }
 
+// Embedding-failure marker sink. vectorIndexAddGuarded is a module-level
+// function with module-level state and no StateKV handle, so the KV-backed
+// marker writer is injected the same way IndexPersistence is above. No-op
+// until src/index.ts wires it, so unit tests that exercise the vector path
+// in isolation don't need a KV double.
+let embeddingFailureSink: {
+  record: (entry: {
+    id: string;
+    sessionId: string;
+    kind: "memory" | "observation" | "synthetic";
+    reason: "embed-error" | "dimension-mismatch";
+    provider: string;
+    error?: string;
+  }) => Promise<void>;
+  clear: (id: string) => Promise<void>;
+} | null = null;
+
+export function setEmbeddingFailureSink(
+  sink: typeof embeddingFailureSink,
+): void {
+  embeddingFailureSink = sink;
+}
+
+// The marker is bookkeeping about a failure; it must never become one.
+// The KV-backed sink already swallows its own errors, but routing every
+// call through here means no future sink can turn "the embedder is down"
+// (soft) into "the save threw" (hard).
+async function markFailure(entry: {
+  id: string;
+  sessionId: string;
+  kind: "memory" | "observation" | "synthetic";
+  reason: "embed-error" | "dimension-mismatch";
+  provider: string;
+  error?: string;
+}): Promise<void> {
+  try {
+    await embeddingFailureSink?.record(entry);
+  } catch (err) {
+    logger.error("vector-index add: failed to mark embedding failure", {
+      id: entry.id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
+async function unmarkFailure(id: string): Promise<void> {
+  try {
+    await embeddingFailureSink?.clear(id);
+  } catch (err) {
+    logger.error("vector-index add: failed to clear embedding marker", {
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+}
+
 // Hard cap on embedding input length. Most providers cap input around
 // 8k tokens (~32k chars at ~4 chars/token). Truncate defensively so a
 // huge memory.content can't 400 the embed call or blow context budget
@@ -85,13 +141,20 @@ export function clipEmbedInput(text: string): string {
   return text.slice(0, EMBED_MAX_CHARS)
 }
 
-// Single guarded vector-index write. Returns true on success. Logs and
-// no-ops on:
+// Single guarded vector-index write. Returns true on success. Logs, marks,
+// and no-ops on:
 //   - dimension mismatch (mis-configured provider would silently corrupt
 //     the index per #248 otherwise — guarded at persistence load there;
 //     this is the symmetric guard at the write site)
 //   - embed throwing (network, rate limit, provider down)
 // Always soft-fails so a downed embedder doesn't break the upstream save.
+//
+// Soft-failing is still the right call, but it used to be the whole story:
+// the row saved, nothing surfaced, and the missing vector was
+// unrecoverable because nothing recorded which ids had been dropped. Every
+// failure now also writes a marker (see state/embedding-status.ts) so the
+// loss is countable and `mem::embeddings-backfill` has a worklist. Marker
+// writes are awaited but can never throw, so the save path is unchanged.
 export async function vectorIndexAddGuarded(
   id: string,
   sessionId: string,
@@ -104,28 +167,46 @@ export async function vectorIndexAddGuarded(
   try {
     const embedding = await ep.embed(clipEmbedInput(text))
     if (embedding.length !== ep.dimensions) {
-      logger.warn("vector-index add: dimension mismatch — skipping", {
+      logger.warn("vector-index add: dimension mismatch — marked for backfill", {
         kind: context.kind,
         id: context.logId,
         provider: ep.name,
         expected: ep.dimensions,
         received: embedding.length,
       })
+      await markFailure({
+        id,
+        sessionId,
+        kind: context.kind,
+        reason: "dimension-mismatch",
+        provider: ep.name,
+      })
       return false
     }
     vi.add(id, sessionId, embedding)
     recordProviderCall()
+    // A previously-failed id that now embeds must stop counting as
+    // missing, otherwise the marker scope grows monotonically and its
+    // size stops meaning "rows without a vector".
+    await unmarkFailure(id)
     return true
   } catch (err) {
     // Embeddings do not go through ResilientProvider, so this is the only
     // place an embedding 429 is visible. Soft-failing here is deliberate
-    // (a downed embedder must not break the save path) but it is exactly
-    // what makes rate limiting invisible: the observation saves, BM25
-    // keeps working, and semantic recall quietly degrades.
+    // (a downed embedder must not break the save path); the marker is what
+    // keeps it from also being silent.
     recordProviderCall(err)
-    logger.warn("vector-index add: embed failed — skipping", {
+    logger.warn("vector-index add: embed failed — marked for backfill", {
       kind: context.kind,
       id: context.logId,
+      provider: ep.name,
+      error: err instanceof Error ? err.message : String(err),
+    })
+    await markFailure({
+      id,
+      sessionId,
+      kind: context.kind,
+      reason: "embed-error",
       provider: ep.name,
       error: err instanceof Error ? err.message : String(err),
     })
@@ -143,6 +224,11 @@ export async function vectorIndexAddGuarded(
 // Per-item failure shape:
 //   - whole-batch network/provider error → all skipped, single warn line
 //   - per-item dimension mismatch → that item skipped, others continue
+//
+// Every skipped item is marked for backfill, same as the single-item path.
+// rebuildIndex runs through here, so without the markers a rebuild that
+// hits a rate-limited provider drops thousands of vectors and leaves one
+// warn line per batch as the only trace.
 export async function vectorIndexAddBatchGuarded(
   items: Array<{
     id: string
@@ -155,27 +241,51 @@ export async function vectorIndexAddBatchGuarded(
   const ep = currentEmbeddingProvider
   if (!vi || !ep || items.length === 0) return { ok: 0, fail: 0 }
 
+  const markBatch = async (
+    reason: "embed-error" | "dimension-mismatch",
+    error?: string,
+  ): Promise<void> => {
+    if (!embeddingFailureSink) return
+    for (const item of items) {
+      await markFailure({
+        id: item.id,
+        sessionId: item.sessionId,
+        kind: item.context.kind,
+        reason,
+        provider: ep.name,
+        ...(error ? { error } : {}),
+      })
+    }
+  }
+
   let embeddings: Float32Array[]
   try {
     embeddings = await ep.embedBatch(items.map((i) => clipEmbedInput(i.text)))
+    recordProviderCall()
   } catch (err) {
-    logger.warn("vector-index add batch: embed failed — skipping batch", {
+    // Same reason the single-item path records: embeddings bypass
+    // ResilientProvider, so this is the only place a batch 429 is counted.
+    recordProviderCall(err)
+    const error = err instanceof Error ? err.message : String(err)
+    logger.warn("vector-index add batch: embed failed — batch marked for backfill", {
       batchSize: items.length,
       provider: ep.name,
-      error: err instanceof Error ? err.message : String(err),
+      error,
     })
+    await markBatch("embed-error", error)
     return { ok: 0, fail: items.length }
   }
 
   if (embeddings.length !== items.length) {
     logger.warn(
-      "vector-index add batch: provider returned wrong length — skipping batch",
+      "vector-index add batch: provider returned wrong length — batch marked for backfill",
       {
         batchSize: items.length,
         returned: embeddings.length,
         provider: ep.name,
       },
     )
+    await markBatch("dimension-mismatch")
     return { ok: 0, fail: items.length }
   }
 
@@ -185,12 +295,19 @@ export async function vectorIndexAddBatchGuarded(
     const item = items[i]
     const embedding = embeddings[i]
     if (embedding.length !== ep.dimensions) {
-      logger.warn("vector-index add batch: dimension mismatch — skipping item", {
+      logger.warn("vector-index add batch: dimension mismatch — item marked for backfill", {
         kind: item.context.kind,
         id: item.context.logId,
         provider: ep.name,
         expected: ep.dimensions,
         received: embedding.length,
+      })
+      await markFailure({
+        id: item.id,
+        sessionId: item.sessionId,
+        kind: item.context.kind,
+        reason: "dimension-mismatch",
+        provider: ep.name,
       })
       fail++
       continue
@@ -198,11 +315,21 @@ export async function vectorIndexAddBatchGuarded(
     try {
       vi.add(item.id, item.sessionId, embedding)
       ok++
+      await unmarkFailure(item.id)
     } catch (err) {
-      logger.warn("vector-index add batch: index write failed — skipping item", {
+      const error = err instanceof Error ? err.message : String(err)
+      logger.warn("vector-index add batch: index write failed — item marked for backfill", {
         kind: item.context.kind,
         id: item.context.logId,
-        error: err instanceof Error ? err.message : String(err),
+        error,
+      })
+      await markFailure({
+        id: item.id,
+        sessionId: item.sessionId,
+        kind: item.context.kind,
+        reason: "embed-error",
+        provider: ep.name,
+        error,
       })
       fail++
     }

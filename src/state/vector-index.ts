@@ -46,6 +46,14 @@ export class VectorIndex {
     this.vectors.delete(obsId);
   }
 
+  // Membership test for the backfill scan. `size` alone can't answer
+  // "which rows are missing a vector" — that needs the set difference
+  // against the stored ids, and materialising the whole key set per
+  // session would be O(n) per check on a 100k-vector index.
+  has(obsId: string): boolean {
+    return this.vectors.has(obsId);
+  }
+
   search(
     query: Float32Array,
     limit = 20,

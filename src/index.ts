@@ -37,7 +37,12 @@ import {
   setVectorIndex,
   setEmbeddingProvider,
   setIndexPersistence,
+  setEmbeddingFailureSink,
 } from "./functions/search.js";
+import {
+  recordEmbeddingFailure,
+  clearEmbeddingFailure,
+} from "./state/embedding-status.js";
 import { registerContextFunction } from "./functions/context.js";
 import { registerSummarizeFunction } from "./functions/summarize.js";
 import { registerMigrateFunction } from "./functions/migrate.js";
@@ -248,6 +253,15 @@ async function main() {
 
   setVectorIndex(vectorIndex);
   setEmbeddingProvider(embeddingProvider);
+
+  // Give the guarded vector-index writes somewhere to record their
+  // soft failures. Without this the drops are a log line and nothing
+  // else — no count, no worklist, no way to tell later which rows lost
+  // their vector. See src/state/embedding-status.ts.
+  setEmbeddingFailureSink({
+    record: (entry) => recordEmbeddingFailure(kv, entry),
+    clear: (id) => clearEmbeddingFailure(kv, id),
+  });
 
   const meterAccessor = hasGetMeter(sdk)
     ? (sdk.getMeter.bind(sdk) as (name: string) => unknown)
