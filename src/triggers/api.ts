@@ -3068,6 +3068,24 @@ export function registerApiTriggers(
   });
   sdk.registerTrigger({ type: "http", function_id: "api::diagnose", config: { api_path: "/agentmemory/diagnostics", http_method: "POST" } });
 
+  // Re-embeds rows the vector index is missing. Deliberate by design —
+  // never fires on its own, because re-embedding a corpus costs real
+  // provider spend and can re-trip the rate limit that opened the gap.
+  // POST {} with dryRun:true to just count.
+  sdk.registerFunction("api::embeddings-backfill",  async (req: ApiRequest) => {
+    const denied = checkAuth(req, secret);
+    if (denied) return denied;
+    const body = (req.body as Record<string, unknown>) || {};
+    const result = await sdk.trigger({ function_id: "mem::embeddings-backfill", payload: {
+      dryRun: body.dryRun === true,
+      limit: typeof body.limit === "number" ? body.limit : undefined,
+      batchSize: typeof body.batchSize === "number" ? body.batchSize : undefined,
+      delayMs: typeof body.delayMs === "number" ? body.delayMs : undefined,
+    } });
+    return { status_code: 200, body: result };
+  });
+  sdk.registerTrigger({ type: "http", function_id: "api::embeddings-backfill", config: { api_path: "/agentmemory/embeddings/backfill", http_method: "POST" } });
+
   sdk.registerFunction("api::heal",  async (req: ApiRequest) => {
     const denied = checkAuth(req, secret);
     if (denied) return denied;

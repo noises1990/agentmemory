@@ -43,6 +43,7 @@ import {
   recordEmbeddingFailure,
   clearEmbeddingFailure,
 } from "./state/embedding-status.js";
+import { registerEmbeddingsBackfillFunction } from "./functions/embeddings-backfill.js";
 import { registerContextFunction } from "./functions/context.js";
 import { registerSummarizeFunction } from "./functions/summarize.js";
 import { registerMigrateFunction } from "./functions/migrate.js";
@@ -406,6 +407,7 @@ async function main() {
     hybridSearch.search(query, limit),
   );
   registerRecentSearchesSweepFunction(sdk, kv);
+  registerEmbeddingsBackfillFunction(sdk, kv);
 
   registerApiTriggers(sdk, kv, secret, metricsStore, taskProviders.providerStates());
   registerEventTriggers(sdk, kv);
@@ -556,7 +558,7 @@ async function main() {
     `Ready. ${embeddingProvider ? "Triple-stream (BM25+Vector+Graph)" : "BM25+Graph"} search active.`,
   );
   bootLog(
-    `REST API: 129 endpoints at http://localhost:${config.restPort}/agentmemory/*`,
+    `REST API: 130 endpoints at http://localhost:${config.restPort}/agentmemory/*`,
   );
   bootLog(
     `MCP surface (opt-in via \`npx @agentmemory/mcp\`): ${getAllTools().length} tools · 6 resources · 3 prompts`,

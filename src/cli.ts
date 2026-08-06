@@ -188,6 +188,13 @@ Commands:
   import-jsonl [p]   Import Claude Code JSONL transcripts (default: ~/.claude/projects)
                      --max-files <N> | --max-files=<N>: override scan cap (default 200, max 1000;
                      out-of-range is rejected; for trees >1000 files, batch by subdirectory)
+  embeddings backfill
+                     Re-embed observations and memories the vector index is missing
+                     (embed failures soft-fail on the write path, so they accumulate
+                     silently and degrade semantic recall). Never runs on its own.
+                     --dry-run: count the gap without embedding or spending
+                     --limit <N>: stop after N rows; re-run to resume
+                     --batch-size <N>: rows per embed call (default 32)
 
 Options:
   --help, -h         Show this help
@@ -3176,6 +3183,180 @@ async function runRemove(): Promise<void> {
   );
 }
 
+// ---------------------------------------------------------------------------
+// `agentmemory embeddings backfill` — re-embed rows the vector index lost.
+//
+// Deliberately manual. The gap this repairs is usually caused by a rate
+// limit, and re-embedding a whole corpus is real provider spend, so nothing
+// triggers it automatically. `--dry-run` answers "how bad is it?" without
+// spending anything, and is the right first command.
+
+async function runEmbeddings(): Promise<void> {
+  const sub = args[1];
+  if (sub !== "backfill") {
+    p.log.error(
+      `Unknown embeddings subcommand${sub ? ` "${sub}"` : ""}. Usage: agentmemory embeddings backfill [--dry-run] [--limit N] [--batch-size N]`,
+    );
+    process.exit(1);
+  }
+
+  const dryRun = args.includes("--dry-run");
+  const readIntFlag = (name: string): number | undefined => {
+    const idx = args.indexOf(name);
+    const raw =
+      idx !== -1 && args[idx + 1] !== undefined
+        ? args[idx + 1]
+        : args.find((a) => a.startsWith(`${name}=`))?.slice(name.length + 1);
+    if (raw === undefined) return undefined;
+    const parsed = parseInt(raw, 10);
+    if (!Number.isInteger(parsed) || parsed <= 0) {
+      p.log.warn(`Ignoring ${name} ${raw}: expected a positive integer.`);
+      return undefined;
+    }
+    return parsed;
+  };
+
+  const port = getRestPort();
+  const base = `http://localhost:${port}`;
+
+  try {
+    const probe = await fetch(`${base}/agentmemory/livez`, {
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!probe.ok) throw new Error(`HTTP ${probe.status}`);
+  } catch (err) {
+    p.log.error(
+      `agentmemory livez probe failed on port ${port}: ${err instanceof Error ? err.message : String(err)}. ` +
+        `Start it with \`npx @agentmemory/agentmemory\` in another terminal, then re-run this command.`,
+    );
+    process.exit(1);
+  }
+
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  const secret = process.env["AGENTMEMORY_SECRET"];
+  if (secret) headers["authorization"] = `Bearer ${secret}`;
+
+  const body: Record<string, unknown> = { dryRun };
+  const limit = readIntFlag("--limit");
+  if (limit !== undefined) body["limit"] = limit;
+  const batchSize = readIntFlag("--batch-size");
+  if (batchSize !== undefined) body["batchSize"] = batchSize;
+
+  const spinner = p.spinner();
+  spinner.start(
+    dryRun ? "scanning for observations without vectors" : "backfilling embeddings",
+  );
+
+  try {
+    const res = await fetch(`${base}/agentmemory/embeddings/backfill`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(body),
+      // A full backfill re-embeds the entire corpus in paced batches, so
+      // it can legitimately run for a long time. Import's 2-minute
+      // ceiling would abort a real run partway through.
+      signal: AbortSignal.timeout(dryRun ? 120_000 : 3_600_000),
+    });
+    const text = await res.text();
+    let json: {
+      success?: boolean;
+      dryRun?: boolean;
+      scanned?: number;
+      missing?: number;
+      embedded?: number;
+      failed?: number;
+      remaining?: number;
+      batches?: number;
+      bm25Missing?: number;
+      bm25Repaired?: number;
+      stoppedReason?: string;
+      error?: string;
+    } = {};
+    if (text.length > 0) {
+      try {
+        json = JSON.parse(text);
+      } catch {
+        spinner.stop("failed");
+        p.log.error(
+          `server returned non-JSON response (HTTP ${res.status}): ${text.slice(0, 200)}`,
+        );
+        process.exit(1);
+      }
+    }
+    if (!res.ok || json.success !== true) {
+      spinner.stop("failed");
+      if (res.status === 401) {
+        p.log.error(
+          `${json.error || `HTTP ${res.status}`}. Set AGENTMEMORY_SECRET to match the server's secret and re-run.`,
+        );
+      } else if (res.status === 404) {
+        p.log.error(
+          `The running agentmemory server does not expose /agentmemory/embeddings/backfill — restart it on this version.`,
+        );
+      } else {
+        p.log.error(json.error || `HTTP ${res.status}`);
+      }
+      if (json.stoppedReason) p.log.warn(json.stoppedReason);
+      process.exit(1);
+    }
+
+    const scanned = json.scanned ?? 0;
+    const missing = json.missing ?? 0;
+    const pct = scanned > 0 ? Math.round((missing / scanned) * 100) : 0;
+
+    const bm25Missing = json.bm25Missing ?? 0;
+
+    if (dryRun) {
+      spinner.stop(
+        `${missing} of ${scanned} embeddable row(s) have no vector (${pct}%)`,
+      );
+      if (missing === 0) {
+        p.log.success("Vector coverage is complete — nothing to backfill.");
+        return;
+      }
+      // Rows missing from BOTH indexes were never indexed at all, rather
+      // than dropped by the embedder. Saying so points at the right cause:
+      // a lost index flush, not embedding credentials.
+      if (bm25Missing > 0) {
+        p.log.warn(
+          `${bm25Missing} of those are missing from the keyword index too — ` +
+            `those were never indexed at all (a lost index flush), not dropped by the ` +
+            `embedding provider. The backfill restores both.`,
+        );
+      }
+      p.log.info(
+        `Run ${c.cmd("agentmemory embeddings backfill")} to repair them. ` +
+          `This calls the embedding provider ${missing} time(s) and costs real spend.`,
+      );
+      return;
+    }
+
+    spinner.stop(
+      `embedded ${json.embedded ?? 0} of ${missing} missing vector(s)` +
+        ((json.failed ?? 0) > 0 ? `, ${json.failed} still failing` : ""),
+    );
+    p.log.info(
+      `scanned ${scanned} · missing ${missing} · embedded ${json.embedded ?? 0} · ` +
+        `failed ${json.failed ?? 0} · keyword entries restored ${json.bm25Repaired ?? 0} · ` +
+        `remaining ${json.remaining ?? 0}`,
+    );
+    if (json.stoppedReason) p.log.warn(json.stoppedReason);
+    if ((json.remaining ?? 0) > 0) {
+      p.log.info("Re-run the same command to resume — embedded rows are skipped.");
+    }
+  } catch (err) {
+    spinner.stop("failed");
+    if (err instanceof Error && err.name === "TimeoutError") {
+      p.log.error(
+        "backfill timed out. Re-run with --limit to work through the corpus in chunks.",
+      );
+    } else {
+      p.log.error(err instanceof Error ? err.message : String(err));
+    }
+    process.exit(1);
+  }
+}
+
 const commands: Record<string, () => Promise<void>> = {
   init: runInit,
   connect: runConnectCmd,
@@ -3187,6 +3368,7 @@ const commands: Record<string, () => Promise<void>> = {
   remove: runRemove,
   mcp: runMcp,
   "import-jsonl": runImportJsonl,
+  embeddings: runEmbeddings,
 };
 
 const handler = commands[args[0] ?? ""] ?? main;
