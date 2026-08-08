@@ -231,6 +231,78 @@ describe("Export/Import Functions", () => {
     expect(reExported.memories.length).toBe(exported.memories.length);
   });
 
+  it("import skips sessions without an id, other sessions still land", async () => {
+    const exportData = {
+      version: "0.3.0",
+      exportedAt: new Date().toISOString(),
+      sessions: [
+        { endedAt: "2026-02-01T00:00:00Z", status: "completed" },
+        { ...testSession, id: "ses_2" },
+      ],
+      observations: {},
+      memories: [],
+      summaries: [],
+    } as unknown as ExportData;
+
+    const result = (await sdk.trigger("mem::import", {
+      exportData,
+      strategy: "merge",
+    })) as { success: boolean; sessions: number; skipped: number };
+
+    expect(result.success).toBe(true);
+    expect(result.sessions).toBe(1);
+    expect(result.skipped).toBeGreaterThan(0);
+
+    const allSessions = await kv.list<Session>("mem:sessions");
+    expect(allSessions.some((s) => s.id === "ses_2")).toBe(true);
+  });
+
+  it("import accepts access logs referencing observation or semantic memory ids, drops dangling ones", async () => {
+    const exportData: ExportData = {
+      version: "0.3.0",
+      exportedAt: new Date().toISOString(),
+      sessions: [{ ...testSession, id: "ses_2" }],
+      observations: { ses_2: [{ ...testObs, id: "obs_2" }] },
+      memories: [],
+      summaries: [],
+      semanticMemories: [
+        {
+          id: "sem_1",
+          fact: "Prefers JWT",
+          confidence: 0.9,
+          sourceSessionIds: ["ses_2"],
+          sourceMemoryIds: [],
+          accessCount: 1,
+          lastAccessedAt: new Date().toISOString(),
+          strength: 1,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+      accessLogs: [
+        { memoryId: "obs_2", count: 3, lastAt: new Date().toISOString(), recent: [1] },
+        { memoryId: "sem_1", count: 2, lastAt: new Date().toISOString(), recent: [1] },
+        { memoryId: "does_not_exist", count: 1, lastAt: new Date().toISOString(), recent: [1] },
+      ],
+    };
+
+    const result = (await sdk.trigger("mem::import", {
+      exportData,
+      strategy: "merge",
+    })) as { success: boolean };
+
+    expect(result.success).toBe(true);
+
+    const obsLog = await kv.get("mem:access", "obs_2");
+    expect(obsLog).not.toBeNull();
+
+    const semLog = await kv.get("mem:access", "sem_1");
+    expect(semLog).not.toBeNull();
+
+    const danglingLog = await kv.get("mem:access", "does_not_exist");
+    expect(danglingLog).toBeNull();
+  });
+
   it("import rejects unsupported version", async () => {
     const exportData = {
       version: "1.0.0",

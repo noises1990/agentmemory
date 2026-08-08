@@ -424,6 +424,10 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
       }
 
       for (const session of importData.sessions) {
+        if (!session?.id) {
+          stats.skipped++;
+          continue;
+        }
         if (strategy === "skip") {
           const existing = await kv
             .get<Session>(KV.sessions, session.id)
@@ -645,9 +649,20 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
             error: `Too many access logs (max ${MAX_ACCESS_LOGS})`,
           };
         }
-        const memoryIds = new Set<string>(
-          importData.memories.map((m) => m.id),
-        );
+        // Access logs reference whichever id the underlying record actually
+        // has. In real-world exports they overwhelmingly point at
+        // observation ids (and sometimes semantic memory ids) rather than
+        // `memories` — restricting the whitelist to `memories` silently
+        // dropped every log.
+        const memoryIds = new Set<string>(importData.memories.map((m) => m.id));
+        for (const sem of importData.semanticMemories ?? []) {
+          memoryIds.add(sem.id);
+        }
+        for (const obs of Object.values(importData.observations)) {
+          for (const o of obs) {
+            memoryIds.add(o.id);
+          }
+        }
         for (const raw of importData.accessLogs) {
           const log = normalizeAccessLog(raw);
           if (!log.memoryId || !memoryIds.has(log.memoryId)) continue;
