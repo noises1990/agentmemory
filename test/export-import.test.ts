@@ -303,6 +303,45 @@ describe("Export/Import Functions", () => {
     expect(danglingLog).toBeNull();
   });
 
+  it("import accepts access logs referencing lesson ids", async () => {
+    const exportData: ExportData = {
+      version: "0.3.0",
+      exportedAt: new Date().toISOString(),
+      sessions: [],
+      observations: {},
+      memories: [],
+      summaries: [],
+      lessons: [
+        {
+          id: "lsn_1",
+          content: "Always validate tokens",
+          context: "Auth work",
+          confidence: 0.9,
+          reinforcements: 1,
+          source: "manual",
+          sourceIds: [],
+          tags: ["auth"],
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          decayRate: 0.1,
+        },
+      ],
+      accessLogs: [
+        { memoryId: "lsn_1", count: 1, lastAt: new Date().toISOString(), recent: [1] },
+      ],
+    };
+
+    const result = (await sdk.trigger("mem::import", {
+      exportData,
+      strategy: "merge",
+    })) as { success: boolean };
+
+    expect(result.success).toBe(true);
+
+    const lessonLog = await kv.get("mem:access", "lsn_1");
+    expect(lessonLog).not.toBeNull();
+  });
+
   it("import rejects unsupported version", async () => {
     const exportData = {
       version: "1.0.0",

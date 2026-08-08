@@ -663,6 +663,9 @@ export function registerExportImportFunction(sdk: ISdk, kv: StateKV): void {
             memoryIds.add(o.id);
           }
         }
+        for (const lesson of importData.lessons ?? []) {
+          memoryIds.add(lesson.id);
+        }
         for (const raw of importData.accessLogs) {
           const log = normalizeAccessLog(raw);
           if (!log.memoryId || !memoryIds.has(log.memoryId)) continue;
