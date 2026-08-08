@@ -1,4 +1,5 @@
 import { registerWorker } from "iii-sdk";
+import { createShutdownHandler } from "./shutdown.js";
 import {
   loadConfig,
   getEnvVar,
@@ -629,88 +630,19 @@ async function main() {
     bootLog(`Auto-consolidation: enabled (every ${consolidationIntervalMs / 60000}m)`);
   }
 
-  // Hard ceiling on the whole drain. systemd's TimeoutStopSec then never
-  // fires, so a stop is a clean exit rather than a SIGKILL mid-write.
-  const SHUTDOWN_DEADLINE_MS = parseInt(
-    process.env["AGENTMEMORY_SHUTDOWN_DEADLINE_MS"] || "10000",
-    10,
-  );
-
-  // Every step here can hang on something outside our control (a peer that is
-  // already gone, a socket that never drains). Bound each one individually so
-  // a single stuck step cannot eat the whole budget and starve the rest.
-  const step = async (
-    label: string,
-    ms: number,
-    work: () => Promise<unknown>,
-  ): Promise<void> => {
-    let timer: NodeJS.Timeout | undefined;
-    try {
-      await Promise.race([
-        work(),
-        new Promise<void>((resolve) => {
-          timer = setTimeout(() => {
-            console.warn(`[agentmemory] Shutdown step "${label}" timed out after ${ms}ms; continuing.`);
-            resolve();
-          }, ms);
-          timer.unref();
-        }),
-      ]);
-    } catch (err) {
-      console.warn(`[agentmemory] Shutdown step "${label}" failed:`, err);
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  };
-
-  // `server.close()` only resolves once every existing connection ends, so a
-  // single keep-alive client (the viewer, a health poller) holds it open
-  // forever. Closing the sockets explicitly is what makes the callback fire.
-  const closeViewer = (): Promise<void> =>
-    new Promise<void>((resolve) => {
-      viewerServer.close(() => resolve());
-      viewerServer.closeAllConnections?.();
-    });
-
-  let shuttingDown = false;
-  const shutdown = async (signal: NodeJS.Signals) => {
-    // systemd's KillMode=control-group signals every process in the unit, and
-    // the handler was re-entering — logging "Shutting down..." twice and
-    // racing itself through the drain.
-    if (shuttingDown) return;
-    shuttingDown = true;
-    console.log(`\n[agentmemory] Shutting down (${signal})...`);
-
-    // Deliberately not unref'd: if the drain wedges, this timer is what is
-    // left holding the loop open, and it must still fire.
-    const hardExit = setTimeout(() => {
-      console.error(
-        `[agentmemory] Shutdown exceeded ${SHUTDOWN_DEADLINE_MS}ms; forcing exit.`,
-      );
-      process.exit(1);
-    }, SHUTDOWN_DEADLINE_MS);
-
-    healthMonitor.stop();
-    dedupMap.stop();
-    indexPersistence.stop();
-
-    // Stop serving first so nothing new arrives mid-drain.
-    await step("close viewer server", 2000, closeViewer);
-
-    // Before the engine link goes away: index writes travel over that same
-    // WS, so flushing after sdk.shutdown() would silently lose them.
-    await step("save index", 4000, () => indexPersistence.save());
-
-    // Last, and bounded: sdk.shutdown() awaits an OpenTelemetry flush across
-    // the engine WS. Under `systemctl stop` the engine is being torn down at
-    // the same moment, so that flush can never land — it just retries against
-    // a refused socket until something kills us.
-    await step("disconnect engine", 3000, () => sdk.shutdown());
-
-    clearWorkerPidfile();
-    clearTimeout(hardExit);
-    process.exit(0);
-  };
+  // One handler instance shared by both signals: the re-entry guard lives in
+  // its closure, and KillMode=control-group does deliver the signal twice.
+  const shutdown = createShutdownHandler({
+    viewerServer,
+    sdk,
+    indexPersistence,
+    stopTimers: () => {
+      healthMonitor.stop();
+      dedupMap.stop();
+      indexPersistence.stop();
+    },
+    clearPidfile: clearWorkerPidfile,
+  });
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
 }
