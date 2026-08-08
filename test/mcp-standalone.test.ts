@@ -143,11 +143,18 @@ describe("InMemoryKV", () => {
 
 describe("handleToolCall", () => {
   const originalFetch = globalThis.fetch;
+  const originalUrl = process.env["AGENTMEMORY_URL"];
 
   beforeEach(() => {
     vi.mocked(writeFileSync).mockClear();
     instantLocalFallbackProbe.mockClear();
     fetchTrap.mockClear();
+    // This block exercises the zero-config InMemoryKV fallback, which only
+    // applies when AGENTMEMORY_URL is unset or local. Without this the suite
+    // silently inherits the developer's own AGENTMEMORY_URL: a remote value
+    // now (correctly) makes every probe failure a hard error instead of a
+    // fallback, so the results depended on whoever ran the tests.
+    delete process.env["AGENTMEMORY_URL"];
     // Order matters: resetHandleForTests() restores the default probe and
     // clears the cached handle. Install the stub AFTER the reset so the
     // shim's next resolveHandle() call hits the stubbed instant-fail path
@@ -159,6 +166,11 @@ describe("handleToolCall", () => {
 
   afterEach(() => {
     (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+    if (originalUrl === undefined) {
+      delete process.env["AGENTMEMORY_URL"];
+    } else {
+      process.env["AGENTMEMORY_URL"] = originalUrl;
+    }
     resetHandleForTests();
   });
 

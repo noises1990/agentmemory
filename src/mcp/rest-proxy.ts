@@ -2,6 +2,12 @@ const DEFAULT_URL = "http://localhost:3111";
 const DEFAULT_HEALTH_PROBE_TIMEOUT_MS = 2_000;
 const CALL_TIMEOUT_MS = 15_000;
 const LOCAL_MODE_TTL_MS = 30_000;
+// A configured-remote probe failure is a hard error, but we must not re-probe
+// on every single tool call while the daemon is down. Cache the failure for a
+// few seconds only — long enough to avoid hammering, short enough that the
+// shim recovers on its own once the daemon is reachable again (no process
+// restart required).
+const REMOTE_FAILURE_TTL_MS = 3_000;
 
 function probeTimeoutMs(): number {
   const raw = process.env["AGENTMEMORY_PROBE_TIMEOUT_MS"];
@@ -30,6 +36,10 @@ export type Handle = ProxyHandle | LocalHandle;
 let cached: Handle | null = null;
 let cachedAt = 0;
 let probeInFlight: Promise<Handle> | null = null;
+// Negative result for the configured-remote path. Deliberately NOT a `Handle`:
+// there is no usable handle when a configured remote is down, only an error to
+// re-raise until the short TTL expires and we re-probe.
+let remoteFailure: { at: number; message: string } | null = null;
 
 // `${VAR}`-style placeholders ship in plugin/.mcp.json so MCP hosts that
 // expand them (Claude Code, Cursor) substitute the user's shell value.
@@ -47,6 +57,34 @@ export function resolveEnvOrEmpty(name: string): string {
 
 function baseUrl(): string {
   return (resolveEnvOrEmpty("AGENTMEMORY_URL") || DEFAULT_URL).replace(/\/+$/, "");
+}
+
+/**
+ * True when AGENTMEMORY_URL names a host that is NOT this machine.
+ *
+ * The distinction drives the silent-fallback policy: pointing the shim at a
+ * real deployment is an explicit statement that memory lives *there*, so
+ * quietly swapping in a process-local InMemoryKV would throw writes away and
+ * answer reads with `[]` while looking healthy. The zero-config localhost case
+ * is different — there the fallback is the documented "no daemon yet" path.
+ *
+ * Unset (or an unexpanded `${AGENTMEMORY_URL}` placeholder) counts as local:
+ * baseUrl() resolves those to http://localhost:3111.
+ */
+export function isConfiguredRemote(): boolean {
+  const raw = resolveEnvOrEmpty("AGENTMEMORY_URL");
+  if (!raw) return false;
+  let hostname: string;
+  try {
+    hostname = new URL(raw).hostname;
+  } catch {
+    // Explicitly configured but unparseable — treat as remote so the operator
+    // gets a loud error instead of a silent demotion to local KV.
+    return true;
+  }
+  // Node returns IPv6 hostnames bracketed: new URL("http://[::1]").hostname === "[::1]"
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
 }
 
 function authHeader(): Record<string, string> {
@@ -89,31 +127,59 @@ export function setLivezProbe(fn?: LivezProbe): void {
   livezProbe = fn ?? defaultLivezProbe;
 }
 
-async function probe(url: string): Promise<boolean> {
+/**
+ * Result of a livez probe. `reason` is populated on failure and is surfaced
+ * verbatim to the caller on the configured-remote path, so it must name the
+ * concrete cause (HTTP status or transport error).
+ */
+interface ProbeResult {
+  ok: boolean;
+  reason?: string;
+}
+
+async function probe(url: string): Promise<ProbeResult> {
   const timeout = probeTimeoutMs();
   try {
     const res = await livezProbe(url, timeout, authHeader());
-    if (!res.ok) {
-      process.stderr.write(
-        `[@agentmemory/mcp] livez probe ${url}/agentmemory/livez -> ${res.status ?? "?"} ${res.statusText ?? ""}; falling back to local InMemoryKV (set AGENTMEMORY_FORCE_PROXY=1 to skip the probe)\n`,
-      );
-    }
-    return res.ok;
+    if (res.ok) return { ok: true };
+    return {
+      ok: false,
+      reason: `HTTP ${res.status ?? "?"} ${res.statusText ?? ""}`.trim(),
+    };
   } catch (err) {
-    process.stderr.write(
-      `[@agentmemory/mcp] livez probe ${url}/agentmemory/livez failed in ${timeout}ms: ${err instanceof Error ? err.message : String(err)}; falling back to local InMemoryKV (set AGENTMEMORY_FORCE_PROXY=1 to skip the probe, or raise AGENTMEMORY_PROBE_TIMEOUT_MS)\n`,
-    );
-    return false;
+    return {
+      ok: false,
+      reason: `request failed in ${timeout}ms: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
+}
+
+function remoteUnreachableMessage(url: string, reason: string): string {
+  return (
+    `[@agentmemory/mcp] agentmemory server at ${url} is unreachable — livez probe ${url}/agentmemory/livez ${reason}. ` +
+    `AGENTMEMORY_URL is explicitly configured to a non-local host, so refusing to fall back to the in-process InMemoryKV: ` +
+    `that fallback would accept writes into throwaway RAM and answer reads with empty results while looking healthy. ` +
+    `Fix the server or network, then retry (the shim re-probes automatically — no restart needed). ` +
+    `Set AGENTMEMORY_FORCE_PROXY=1 to skip the probe, or raise AGENTMEMORY_PROBE_TIMEOUT_MS if the probe is merely slow.`
+  );
 }
 
 export function invalidateHandle(): void {
   cached = null;
   cachedAt = 0;
+  remoteFailure = null;
 }
 
 export async function resolveHandle(): Promise<Handle> {
   const now = Date.now();
+  if (remoteFailure) {
+    if (now - remoteFailure.at < REMOTE_FAILURE_TTL_MS) {
+      throw new Error(remoteFailure.message);
+    }
+    // TTL expired — drop the negative result and re-probe so a recovered
+    // daemon is picked up without restarting the process.
+    remoteFailure = null;
+  }
   if (cached) {
     if (cached.mode === "local" && now - cachedAt >= LOCAL_MODE_TTL_MS) {
       cached = null;
@@ -126,7 +192,23 @@ export async function resolveHandle(): Promise<Handle> {
   const url = baseUrl();
   const skipProbe = forceProxy();
   probeInFlight = (async () => {
-    const up = skipProbe ? true : await probe(url);
+    const result: ProbeResult = skipProbe ? { ok: true } : await probe(url);
+    const up = result.ok;
+    if (!up) {
+      const reason = result.reason ?? "failed for an unknown reason";
+      if (isConfiguredRemote()) {
+        // HARD ERROR: no InMemoryKV fallback on the configured-remote path.
+        const message = remoteUnreachableMessage(url, reason);
+        remoteFailure = { at: Date.now(), message };
+        process.stderr.write(`${message}\n`);
+        throw new Error(message);
+      }
+      // Zero-config / localhost: the documented fallback stays, and so does
+      // the stderr warning that makes it diagnosable.
+      process.stderr.write(
+        `[@agentmemory/mcp] livez probe ${url}/agentmemory/livez failed: ${reason}; falling back to local InMemoryKV (set AGENTMEMORY_FORCE_PROXY=1 to skip the probe, or raise AGENTMEMORY_PROBE_TIMEOUT_MS)\n`,
+      );
+    }
     if (skipProbe) {
       process.stderr.write(
         `[@agentmemory/mcp] AGENTMEMORY_FORCE_PROXY set; skipping livez probe and trusting ${url}\n`,
@@ -175,5 +257,6 @@ export function resetHandleForTests(): void {
   cached = null;
   cachedAt = 0;
   probeInFlight = null;
+  remoteFailure = null;
   livezProbe = defaultLivezProbe;
 }

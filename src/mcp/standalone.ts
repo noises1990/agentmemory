@@ -9,6 +9,7 @@ import { generateId } from "../state/schema.js";
 import {
   resolveHandle,
   invalidateHandle,
+  isConfiguredRemote,
   type Handle,
   type ProxyHandle,
 } from "./rest-proxy.js";
@@ -385,8 +386,21 @@ export async function handleToolCall(
     try {
       return await handleProxy(validated, handle);
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
+      if (isConfiguredRemote()) {
+        // Same rule as the livez probe: when AGENTMEMORY_URL points at a real
+        // deployment, answering from the process-local InMemoryKV would hand
+        // back empty results that look like a successful query. Fail loudly.
+        process.stderr.write(
+          `[@agentmemory/mcp] proxy call failed for ${toolName}: ${detail}; refusing local KV fallback because AGENTMEMORY_URL is configured to a remote host\n`,
+        );
+        invalidateHandle();
+        throw new Error(
+          `[@agentmemory/mcp] ${toolName} failed against the configured agentmemory server at ${handle.baseUrl}: ${detail}. Not falling back to the in-process InMemoryKV — it would silently discard writes and return empty reads.`,
+        );
+      }
       process.stderr.write(
-        `[@agentmemory/mcp] proxy call failed for ${toolName}: ${err instanceof Error ? err.message : String(err)}; invalidating handle and falling back to local KV\n`,
+        `[@agentmemory/mcp] proxy call failed for ${toolName}: ${detail}; invalidating handle and falling back to local KV\n`,
       );
       invalidateHandle();
     }
