@@ -39,6 +39,12 @@ INCLUSION BAR — this is the whole point of the document:
 - If you cannot cite it, do not write it.
 - Prefer a specific, checkable statement over a general one. "Integration tests need the shared Postgres container; if you see 'relation \\"findings\\" does not exist', re-run with X" beats "tests can be flaky".
 
+NO COUNTS OF THE CURRENT STATE. Do not write test counts, file counts, line counts, coverage percentages, artifact sizes, timings, or "N of M" tallies. They are true the day they are captured and wrong soon after, and a reader cannot tell a rotted number from a live one. Write the invariant instead:
+- WRONG: "All 138 test files (1559 tests) must pass cross-platform."
+- RIGHT: "The whole suite must pass on Windows as well as POSIX; tests using literal /tmp paths fail on Windows."
+
+A required value is a fact, not a count — KEEP it: a pinned dependency version, a configured limit or budget, a constant the code depends on, an error code. The test is whether the repo REQUIRES the number (keep it) or merely HAPPENS to have it today (drop it).
+
 NEVER include: secrets, tokens, keys, passwords, connection strings with credentials, personal data, or anything that looks like one.
 
 Write for an agent, not a person: terse, imperative, no preamble, no marketing, no encouragement.
