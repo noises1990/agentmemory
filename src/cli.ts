@@ -832,6 +832,24 @@ function adoptRunningEngine(): void {
 
     const pids = findEnginePidsByPort(getRestPort());
     const enginePid = pids[0];
+
+    // Adopt only what is actually there. `attached: true` tells the rest of
+    // startup that an engine is already running, so nothing spawns one —
+    // writing it without having found a live engine strands the worker
+    // reconnecting forever to a process that will never exist, while the
+    // start script reports a normal launch.
+    //
+    // This bit Windows every time, not intermittently:
+    // findEnginePidsByPort returns [] unconditionally on Windows (no lsof),
+    // so enginePid is always undefined here. Any start with no
+    // engine-state.json — which `start-agentmemory.ps1 -Stop` removes —
+    // wrote attached:true, and the daemon never came up. Recovery needed a
+    // hand-written state file.
+    //
+    // No engine and no pidfile means there is nothing to adopt. Return and
+    // let the caller start one.
+    if (!enginePid && !existingPid) return;
+
     if (enginePid && !existingPid) {
       writeEnginePidfile(enginePid);
     }
