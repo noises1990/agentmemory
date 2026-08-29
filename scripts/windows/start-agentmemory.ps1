@@ -100,6 +100,30 @@ if ($loaded.Count -gt 0) {
 # the environment. Set AGENTMEMORY_PROVIDER in ~/.agentmemory/.env to pin
 # the provider; detection honours the pin and will never silently fall
 # back to a different provider (and so never silently bill one).
+
+# AGENTMEMORY_URL is a CLIENT setting: it tells a CLI or MCP client where to
+# reach a server. The server must never read it, and inheriting it from the
+# ambient environment is not harmless.
+#
+# Measured 2026-08-29. A User-scoped AGENTMEMORY_URL pointed at that box's
+# Tailscale name. getBaseUrl() returned it, and isEngineRunning() treated ANY
+# HTTP response as proof of a live engine -- Tailscale answered 404, which is
+# a response. The CLI concluded an engine was already up, skipped
+# startEngine(), and the worker sat in a WebSocket reconnect loop against a
+# port nothing was listening on. The daemon was down for three weeks while
+# every start printed success.
+#
+# Cleared for THIS process only, which the engine and worker inherit. The
+# user-level variable is untouched, so remote clients keep resolving.
+#
+# isEngineRunning() now probes loopback rather than getBaseUrl(), so this is
+# no longer load-bearing. It stays as defence in depth, and because printing
+# the ignored value is what makes an ambient override visible at all.
+if ($env:AGENTMEMORY_URL) {
+  Write-Host "Ignoring inherited AGENTMEMORY_URL=$($env:AGENTMEMORY_URL) for the server process (client setting)." -ForegroundColor DarkYellow
+  [Environment]::SetEnvironmentVariable('AGENTMEMORY_URL', $null)
+}
+
 Stop-AgentMemory
 
 if ($Foreground) {
