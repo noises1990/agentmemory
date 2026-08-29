@@ -293,6 +293,17 @@ function parseSummaryXml(
   };
 }
 
+/** The subset of a summary that `SummaryOutputSchema` covers. */
+function toValidationShape(summary: SessionSummary) {
+  return {
+    title: summary.title,
+    narrative: summary.narrative,
+    keyDecisions: summary.keyDecisions,
+    filesModified: summary.filesModified,
+    concepts: summary.concepts,
+  };
+}
+
 export function registerSummarizeFunction(
   sdk: ISdk,
   kv: StateKV,
@@ -346,6 +357,9 @@ export function registerSummarizeFunction(
         // markdown-wrapped or otherwise wrapped response gets a
         // second roll-of-the-dice instead of dropping the summary.
         let summary: SessionSummary | null = null;
+        // Carried out of the loop so the post-loop failure path reports the
+        // errors from the LAST attempt rather than re-running the validator.
+        let validation: ReturnType<typeof validateOutput> | null = null;
         let response = "";
         let mode = "single";
         let chunks = 1;
@@ -370,14 +384,37 @@ export function registerSummarizeFunction(
             });
             continue;
           }
-          summary = parseSummaryXml(
+          const parsed = parseSummaryXml(
             response,
             sessionId,
             session.project,
             compressed.length,
           );
-          if (summary) break;
-          logger.warn("Failed to parse summary XML", { sessionId, attempt });
+          if (!parsed) {
+            logger.warn("Failed to parse summary XML", { sessionId, attempt });
+            continue;
+          }
+          summary = parsed;
+
+          // Parsing only requires a <title>, so a response with a missing or
+          // one-line <narrative> parsed clean, broke the loop, and was then
+          // discarded by the validator below — spending the retry budget on
+          // the one failure mode that never occurred while never retrying the
+          // one that did. Measured on this deployment's daemon log: 54 of 59
+          // summarize failures were `narrative: expected >=20 characters`,
+          // and zero were parse failures. Validate inside the loop so a thin
+          // narrative buys the second attempt that a broken tag already got.
+          validation = validateOutput(
+            SummaryOutputSchema,
+            toValidationShape(parsed),
+            "mem::summarize",
+          );
+          if (validation.valid) break;
+          logger.warn("Summary validation failed, retrying", {
+            sessionId,
+            attempt,
+            errors: validation.result.errors,
+          });
         }
 
         if (!response || !response.trim()) {
@@ -396,14 +433,11 @@ export function registerSummarizeFunction(
           return { success: false, error: "parse_failed" };
         }
 
-        const summaryForValidation = {
-          title: summary.title,
-          narrative: summary.narrative,
-          keyDecisions: summary.keyDecisions,
-          filesModified: summary.filesModified,
-          concepts: summary.concepts,
-        };
-        const validation = validateOutput(
+        const summaryForValidation = toValidationShape(summary);
+        // Set on every path that produced a parsed summary; the `??` is a
+        // type guard, not a fallback — an unvalidated summary must never
+        // reach the store.
+        validation ??= validateOutput(
           SummaryOutputSchema,
           summaryForValidation,
           "mem::summarize",

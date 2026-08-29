@@ -27,7 +27,12 @@ const FALLBACK_WINDOW = 32_000;
  * and a bare `@cf/meta/llama-3.1-8b-instruct-fp8` resolve identically.
  */
 const WINDOWS: ReadonlyArray<readonly [string, number]> = [
-  // DeepSeek (via AI Gateway custom provider)
+  // DeepSeek. V4 Flash and Pro landed in the Workers AI catalogue on
+  // 2026-08-14 (`@cf/deepseek-ai/deepseek-v4-flash-0731`,
+  // `@cf/deepseek-ai/deepseek-v4-pro-0813`), so they no longer need an AI
+  // Gateway custom provider. Matching is longest-substring, so the undated
+  // needles below already cover the dated Workers AI ids and the bare
+  // `deepseek/deepseek-v4-*` names any older config still carries.
   ["deepseek-v4-flash", 1_048_576],
   ["deepseek-v4-pro", 1_048_576],
   ["deepseek-chat", 128_000],
