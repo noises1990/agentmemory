@@ -18,6 +18,7 @@ import {
   renderPinnedContext,
 } from "./slots.js";
 import { getAgentId, isAgentScopeIsolated } from "../config.js";
+import { findLiveDossier } from "./dossier.js";
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 3);
@@ -87,6 +88,35 @@ export function registerContextFunction(
           content: slotContent,
           tokens: estimateTokens(slotContent),
           recency: Date.now(),
+        });
+      }
+
+      // The repository dossier: one curated document per repo, built from its
+      // summaries, lessons and decisions. It is the highest value-per-token
+      // block available — an agent starting cold learns the repo's standing
+      // decisions and known traps here instead of rediscovering them.
+      //
+      // Blocks are sorted by recency and filled greedily, so stamping the
+      // dossier's own updatedAt (not Date.now()) keeps it honest: a dossier
+      // that has not been rebuilt in weeks yields to fresher material rather
+      // than permanently occupying the top of every pack.
+      try {
+        const dossier = await findLiveDossier(kv, data.project);
+        if (dossier?.content) {
+          blocks.push({
+            type: "memory",
+            content: dossier.content,
+            tokens: estimateTokens(dossier.content),
+            recency: new Date(dossier.updatedAt).getTime(),
+            sourceIds: [dossier.id],
+          });
+        }
+      } catch (err) {
+        // A missing dossier is normal (new repo, builder not run yet). A
+        // failing lookup must not take the whole context pack down with it.
+        logger.warn("Dossier lookup failed for context pack", {
+          project: data.project,
+          error: err instanceof Error ? err.message : String(err),
         });
       }
       if (profile) {

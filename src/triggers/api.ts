@@ -2565,6 +2565,32 @@ export function registerApiTriggers(
     config: { api_path: "/agentmemory/routines/run", http_method: "POST" },
   });
 
+  // Build/rebuild one repository's dossier.
+  //
+  // A write endpoint, not a query one: dossiers are READ through the existing
+  // search/smartSearch/context surface, which already indexes KV.memories.
+  // Nothing on the consumer side changes. This exists so the build can be run
+  // on demand — a pilot, a backfill, or a forced refresh after the inclusion
+  // bar changes — alongside the automatic session-end trigger.
+  sdk.registerFunction("api::dossier-build",
+    async (
+      req: ApiRequest<{ project: string; force?: boolean }>,
+    ): Promise<Response> => {
+      const authErr = checkAuth(req, secret);
+      if (authErr) return authErr;
+      if (!req.body?.project) {
+        return { status_code: 400, body: { error: "project is required" } };
+      }
+      const result = await sdk.trigger({ function_id: "mem::dossier-build", payload: req.body });
+      return { status_code: 201, body: result };
+    },
+  );
+  sdk.registerTrigger({
+    type: "http",
+    function_id: "api::dossier-build",
+    config: { api_path: "/agentmemory/dossier/build", http_method: "POST" },
+  });
+
   sdk.registerFunction("api::routine-status", 
     async (req: ApiRequest): Promise<Response> => {
       const authErr = checkAuth(req, secret);

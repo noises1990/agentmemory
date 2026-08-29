@@ -65,6 +65,7 @@ import { registerClaudeBridgeFunction } from "./functions/claude-bridge.js";
 import { registerGraphFunction } from "./functions/graph.js";
 import { registerGraphImportFunction } from "./functions/graph-import.js";
 import { registerConsolidationPipelineFunction } from "./functions/consolidation-pipeline.js";
+import { registerDossierFunction } from "./functions/dossier.js";
 import { registerTeamFunction } from "./functions/team.js";
 import { registerGovernanceFunction } from "./functions/governance.js";
 import { registerSnapshotFunction } from "./functions/snapshot.js";
@@ -314,6 +315,11 @@ async function main() {
   registerConsolidationPipelineFunction(sdk, kv, taskProviders.providerFor("consolidation-pipeline"));
   bootLog(`Consolidation pipeline: registered (CONSOLIDATION_ENABLED=${isConsolidationEnabled() ? "true" : "false"})`);
 
+  // Shares the consolidation provider: a dossier is a consolidation over a
+  // repository rather than over a session, and wants the same model tier.
+  registerDossierFunction(sdk, kv, taskProviders.providerFor("consolidation-pipeline"));
+  bootLog("Dossier builder: registered");
+
   if (isAutoCompressEnabled()) {
     bootLog(
       `WARNING: AGENTMEMORY_AUTO_COMPRESS=true — every PostToolUse observation will be sent to your LLM provider for compression. This spends API tokens proportional to your session tool-use frequency. Set AGENTMEMORY_AUTO_COMPRESS=false to disable.`,
@@ -559,7 +565,7 @@ async function main() {
     `Ready. ${embeddingProvider ? "Triple-stream (BM25+Vector+Graph)" : "BM25+Graph"} search active.`,
   );
   bootLog(
-    `REST API: 130 endpoints at http://localhost:${config.restPort}/agentmemory/*`,
+    `REST API: 131 endpoints at http://localhost:${config.restPort}/agentmemory/*`,
   );
   bootLog(
     `MCP surface (opt-in via \`npx @agentmemory/mcp\`): ${getAllTools().length} tools · 6 resources · 3 prompts`,

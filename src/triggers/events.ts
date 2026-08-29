@@ -131,6 +131,26 @@ export function registerEventTriggers(sdk: ISdk, kv: StateKV): void {
         });
       }
     }
+    // Rebuild this repo's dossier once its summary exists, so the new
+    // session is actually represented. Detached: session-end must not block
+    // on an LLM round-trip, and mem::dossier-build debounces itself, so a
+    // burst of session-ends costs one rebuild rather than one each.
+    try {
+      const session = await kv.get<Session>(KV.sessions, data.sessionId);
+      if (session?.project) {
+        sdk.trigger({
+          function_id: "mem::dossier-build",
+          payload: { project: session.project },
+          action: TriggerAction.Void(),
+        });
+      }
+    } catch (err) {
+      logger.warn("dossier-build trigger failed", {
+        sessionId: data.sessionId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return summary;
   });
   sdk.registerTrigger({
