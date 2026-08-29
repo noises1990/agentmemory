@@ -366,9 +366,39 @@ function getEnginePort(): number {
   return getRestPort() + 46023;
 }
 
+/**
+ * Address of the engine THIS process manages.
+ *
+ * Deliberately not getBaseUrl(). AGENTMEMORY_URL is a client setting — it
+ * tells a CLI or MCP client where to reach a server, which may be another
+ * machine. Every caller of isEngineRunning() is making a local lifecycle
+ * decision (spawn one, adopt one, stop one, report on one), and none of them
+ * is answering a question about a remote host.
+ */
+function localEngineBaseUrl(): string {
+  // 127.0.0.1, not localhost: the REST server binds IPv4 only, and .NET/Node
+  // resolvers try ::1 first, which costs a ~2s connect timeout on every probe.
+  return `http://127.0.0.1:${getRestPort()}`;
+}
+
+/**
+ * Is the engine this process manages up?
+ *
+ * "Any HTTP response counts" is sound against loopback, where nothing else
+ * listens on the engine's port, and only against loopback.
+ *
+ * It was previously probing getBaseUrl(). Measured on the workhorse box,
+ * 2026-08-29: a User-scoped AGENTMEMORY_URL pointed at that machine's
+ * Tailscale name, Tailscale answered 404 — a response, not a failure — so
+ * this returned true, startup took the adopt branch, startEngine() was never
+ * called, and the worker sat in a reconnect loop against a port nothing was
+ * listening on. The daemon was down for three weeks while every launch
+ * printed success. An ambient client variable silently decided a server
+ * lifecycle question.
+ */
 async function isEngineRunning(): Promise<boolean> {
   try {
-    await fetch(`${getBaseUrl()}/`, {
+    await fetch(`${localEngineBaseUrl()}/`, {
       signal: AbortSignal.timeout(2000),
     });
     return true;
@@ -1545,7 +1575,10 @@ async function runStatus() {
 
   const up = await isEngineRunning();
   if (!up) {
-    p.log.error(`Not running — no response at ${base}`);
+    // The probed address, not getBaseUrl(): isEngineRunning checks the local
+    // engine, so naming a configured remote URL here would send the reader
+    // to debug a host that was never contacted.
+    p.log.error(`Not running — no response at ${localEngineBaseUrl()}`);
     p.log.info("Start with: npx @agentmemory/agentmemory");
     process.exit(1);
   }

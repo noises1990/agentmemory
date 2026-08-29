@@ -5,6 +5,7 @@ import { withKeyedLock } from "../state/keyed-mutex.js";
 import { recordAudit } from "./audit.js";
 import { getSearchIndex, getVectorIndex } from "./search.js";
 import { getRateLimitStats } from "../providers/rate-limit-monitor.js";
+import { unindexMemory } from "./memory-lifecycle.js";
 import type {
   Action,
   ActionEdge,
@@ -1119,6 +1120,9 @@ export function registerDiagnosticsFunction(sdk: ISdk, kv: StateKV): void {
                 fresh.isLatest = false;
                 fresh.updatedAt = new Date().toISOString();
                 await kv.set(KV.memories, fresh.id, fresh);
+                // Persists under its own lock, so it owes the indexes
+                // separately — see demoteMemory for why this is not optional.
+                unindexMemory(fresh.id, "mem::heal demote");
                 await recordAudit(kv, "heal", "mem::heal", [fresh.id], {
                   entityType: "memory",
                   reason: "superseded-memory-mark-non-latest",

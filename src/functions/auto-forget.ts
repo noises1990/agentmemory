@@ -6,6 +6,7 @@ import { recordAudit } from "./audit.js";
 import { deleteAccessLog } from "./access-tracker.js";
 import { getSearchIndex, vectorIndexRemove, flushIndexSave } from "./search.js";
 import { logger } from "../logger.js";
+import { demoteMemory } from "./memory-lifecycle.js";
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const CONTRADICTION_THRESHOLD = 0.9;
@@ -130,8 +131,7 @@ export function registerAutoForgetFunction(sdk: ISdk, kv: StateKV): void {
                     new Date(memB.createdAt).getTime()
                     ? memA
                     : memB;
-                older.isLatest = false;
-                await kv.set(KV.memories, older.id, older);
+                await demoteMemory(kv, older, "mem::auto-forget contradiction");
                 await recordAudit(kv, "forget", "mem::auto-forget", [older.id], {
                   resource: "memory",
                   reason: "auto-forget contradiction",

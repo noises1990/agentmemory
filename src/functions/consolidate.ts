@@ -27,6 +27,7 @@ Output XML:
 
 import { getXmlTag, getXmlChildren } from "../prompts/xml.js";
 import { logger } from "../logger.js";
+import { demoteMemory } from "./memory-lifecycle.js";
 
 function parseMemoryXml(
   xml: string,
@@ -173,8 +174,7 @@ export function registerConsolidateFunction(
           );
 
           if (existingMatch) {
-            existingMatch.isLatest = false;
-            await kv.set(KV.memories, existingMatch.id, existingMatch);
+            await demoteMemory(kv, existingMatch, "mem::consolidate supersede");
             await recordAudit(kv, "evolve", "mem::consolidate", [existingMatch.id], {
               action: "mark_non_latest",
               concept,

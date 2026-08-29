@@ -4,6 +4,7 @@ import { KV, generateId, jaccardSimilarity } from "../state/schema.js";
 import { StateKV } from "../state/kv.js";
 import { withKeyedLock } from "../state/keyed-mutex.js";
 import { memoryToObservation } from "../state/memory-utils.js";
+import { demoteMemory } from "./memory-lifecycle.js";
 import { deleteAccessLog } from "./access-tracker.js";
 import { recordAudit } from "./audit.js";
 import { getSearchIndex, vectorIndexAddGuarded, vectorIndexRemove, flushIndexSave, scheduleIndexSave } from "./search.js";
@@ -122,8 +123,7 @@ export function registerRememberFunction(sdk: ISdk, kv: StateKV): void {
         }
 
         if (supersededMemory) {
-          supersededMemory.isLatest = false;
-          await kv.set(KV.memories, supersededMemory.id, supersededMemory);
+          await demoteMemory(kv, supersededMemory, "mem::remember supersede");
         }
         await kv.set(KV.memories, memory.id, memory);
 

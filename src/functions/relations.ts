@@ -6,6 +6,7 @@ import { withKeyedLock } from "../state/keyed-mutex.js";
 import { safeAudit } from "./audit.js";
 import { recordAccessBatch } from "./access-tracker.js";
 import { logger } from "../logger.js";
+import { demoteMemory } from "./memory-lifecycle.js";
 
 function computeConfidence(
   source: Memory,
@@ -152,8 +153,7 @@ export function registerRelationsFunction(sdk: ISdk, kv: StateKV): void {
         isLatest: true,
       };
 
-      existing.isLatest = false;
-      await kv.set(KV.memories, existing.id, existing);
+      await demoteMemory(kv, existing, "mem::evolve supersede");
       await safeAudit(kv, "evolve", "mem::evolve", [existing.id], {
         operation: "evolve",
         action: "mark_non_latest",
