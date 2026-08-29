@@ -7,6 +7,11 @@ interface IndexEntry {
   obsId: string;
   sessionId: string;
   termCount: number;
+  /**
+   * Curated documents (memories, dossiers) opt out of BM25 length
+   * normalization. See the `b` field and scoreEntry below for why.
+   */
+  curated: boolean;
 }
 
 export class SearchIndex {
@@ -17,9 +22,35 @@ export class SearchIndex {
   private sortedTerms: string[] | null = null;
 
   private readonly k1 = 1.2;
+  /**
+   * BM25 length normalization.
+   *
+   * It exists to stop a long, rambling document outranking a focused one
+   * merely by accumulating term occurrences. That assumption holds for this
+   * corpus's raw observations, which are short and uniform.
+   *
+   * It inverts for curated documents. A repository dossier is deliberately
+   * long — it is the summary of hundreds of sessions — and it competes
+   * against thousands of tiny `file_edit` rows, so avgDocLen is small and
+   * docLen/avgDocLen is enormous. Measured on this corpus: the 4,621-char
+   * `Dossier: inspekter` scored 3.3 against an observation titled "Edit" at
+   * 15.7 for the query "inspekter dossier", despite matching both terms in
+   * its title. Length normalization was burying exactly the document the
+   * search was meant to surface.
+   *
+   * Curated entries therefore score with b = 0. They are a small, deliberate
+   * set (one dossier per repo, plus saved memories), each one written to be
+   * the answer rather than the evidence.
+   */
   private readonly b = 0.75;
+  private readonly curatedB = 0;
 
   add(obs: CompressedObservation): void {
+    // Re-adding an existing id must not double-count its length. Without
+    // this, a refresh inflates totalDocLength, avgDocLen drifts up, and BM25
+    // length normalization silently weakens for the whole corpus.
+    if (this.entries.has(obs.id)) this.remove(obs.id);
+
     const terms = this.extractTerms(obs);
     const termFreq = new Map<string, number>();
     let termCount = 0;
@@ -33,6 +64,7 @@ export class SearchIndex {
       obsId: obs.id,
       sessionId: obs.sessionId,
       termCount,
+      curated: obs.curated === true,
     });
     this.docTermCounts.set(obs.id, termFreq);
     this.totalDocLength += termCount;
@@ -115,9 +147,10 @@ export class SearchIndex {
           const tf = docTerms?.get(term) || 0;
           const docLen = entry.termCount;
 
+          const b = entry.curated ? this.curatedB : this.b;
           const numerator = tf * (this.k1 + 1);
           const denominator =
-            tf + this.k1 * (1 - this.b + this.b * (docLen / avgDocLen));
+            tf + this.k1 * (1 - b + b * (docLen / avgDocLen));
           const bm25Score = idf * (numerator / denominator) * weight;
 
           scores.set(obsId, (scores.get(obsId) || 0) + bm25Score);

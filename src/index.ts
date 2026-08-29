@@ -21,6 +21,7 @@ import {
 import { makeTaskProviderFactory } from "./providers/task-router.js";
 import { StateKV } from "./state/kv.js";
 import { KV } from "./state/schema.js";
+import { memoryToObservation } from "./state/memory-utils.js";
 import { VectorIndex } from "./state/vector-index.js";
 import { HybridSearch } from "./state/hybrid-search.js";
 import { IndexPersistence } from "./state/index-persistence.js";
@@ -528,20 +529,21 @@ async function main() {
       for (const memory of memories) {
         if (memory.isLatest === false) continue;
         if (!memory.title || !memory.content) continue;
-        if (bm25Index.has(memory.id)) continue;
-        bm25Index.add({
-          id: memory.id,
-          sessionId: memory.sessionIds?.[0] ?? "memory",
-          timestamp: memory.createdAt,
-          type: "decision",
-          title: memory.title,
-          facts: [memory.content],
-          narrative: memory.content,
-          concepts: memory.concepts,
-          files: memory.files,
-          importance: memory.strength,
-        });
-        backfilled++;
+        // Re-add rather than skip when already present. The persisted index
+        // is a snapshot: an entry written by an older build carries whatever
+        // fields that build knew about, and skipping means a flag added
+        // later (e.g. `curated`, which controls length normalization) never
+        // reaches restored entries. Re-adding is idempotent — add() removes
+        // an existing id first — and this set is small (memories, not
+        // observations), so refreshing it on every boot is cheap and
+        // self-healing.
+        const alreadyIndexed = bm25Index.has(memory.id);
+        // Via memoryToObservation, not an inline literal: that helper is the
+        // single place a Memory becomes an indexable record, and it is what
+        // stamps `curated` (which the index reads to skip length
+        // normalization). An inline copy silently drifts from it.
+        bm25Index.add(memoryToObservation(memory));
+        if (!alreadyIndexed) backfilled++;
       }
       if (backfilled > 0) {
         bootLog(

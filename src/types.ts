@@ -61,6 +61,13 @@ export interface CompressedObservation {
   imageDescription?: string;
   modality?: "text" | "image" | "mixed";
   agentId?: string;
+  /**
+   * True for records that are curated documents (memories, dossiers) rather
+   * than captured activity. The search index uses it to skip BM25 length
+   * normalization, which otherwise buries long summaries under short
+   * telemetry. Set by memoryToObservation; never set on real observations.
+   */
+  curated?: boolean;
 }
 
 export type ObservationType =
