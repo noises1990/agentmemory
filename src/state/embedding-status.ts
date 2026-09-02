@@ -88,12 +88,32 @@ export async function recordEmbeddingFailure(
  * Never throws, for the same reason as above — and a stale marker is
  * harmless: the backfill reconciles against the vector index, so a marker
  * for an already-embedded id is skipped, not re-embedded.
+ *
+ * Reads before deleting, and that is the point. This is called on EVERY
+ * successful embed, in both vectorIndexAddGuarded and its batch variant —
+ * but a marker exists only for a row that previously failed, which is the
+ * rare case. Deleting unconditionally turned every successful embed into a
+ * state-store mutation on this scope.
+ *
+ * Every mutation is broadcast to each registered state trigger, so a
+ * rebuildIndex pass over a full corpus emitted one event per embedded row
+ * for markers that were not there. On the VPS that showed up as a sustained
+ * event storm on `mem:emb-failures` — orders of magnitude faster than the
+ * embedder could actually run, which is the tell that the writes were
+ * local no-ops rather than real failures. The engine grew until it hit its
+ * memory cap and was OOM-killed, restarted, ran rebuildIndex from the top,
+ * and repeated: a loop that could never converge because each pass paid the
+ * amplification again.
+ *
+ * A get is a read, not a mutation, so it emits nothing.
  */
 export async function clearEmbeddingFailure(
   kv: StateKV,
   id: string,
 ): Promise<void> {
   try {
+    const existing = await kv.get<EmbeddingFailure>(KV.embeddingFailures, id);
+    if (!existing) return;
     await kv.delete(KV.embeddingFailures, id);
   } catch (err) {
     logger.error("Failed to clear embedding-failure marker", {
