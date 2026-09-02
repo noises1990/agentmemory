@@ -36,6 +36,40 @@ type IndexShardManifest = {
   chars: number;
 };
 
+/**
+ * Write-ahead record of every generation whose shards may exist on disk.
+ *
+ * Why this is needed: shards are written BEFORE the manifest that references
+ * them is published. A process killed in that window leaves shards that no
+ * manifest ever named, and the state store has no scope enumeration, so
+ * nothing can find them again — they are unreachable and permanent.
+ *
+ * The previous cleanup only walked the shards listed in the manifest read at
+ * the start of the save, so it collected exactly one generation back on the
+ * clean path and could not see a crash-orphaned one at all.
+ *
+ * Measured on the VPS, 2026-09-02: 413 generations on disk, 1,305 shard
+ * files, 2.34 GB. The live manifest referenced 2 shards, 7.4 MB. The other
+ * 94% was 411 generations orphaned by 411 OOM kills, and the engine loaded
+ * the whole scope at boot — reaching the 3 GB cap in 15 seconds, before
+ * doing any work. Each crash added a generation, so the load grew every
+ * cycle and the spiral could not converge.
+ *
+ * The ledger is the intent log that makes them reachable: an entry is
+ * written before the shards, so a crash at any point leaves a record the
+ * next boot can collect.
+ */
+type IndexGenerationLedger = {
+  v: 1;
+  generations: Array<{
+    generation: string;
+    shards: Array<{ scope: string; key: string }>;
+  }>;
+};
+
+/** Ledger entries retained before older ones are force-collected. */
+const MAX_LEDGER_ENTRIES = 256;
+
 type IndexPersistenceOptions = {
   shardChars?: number;
   createGeneration?: () => string;
@@ -56,6 +90,11 @@ function createIndexGeneration(): string {
 
 function statePath(scope: string, key: string): string {
   return `${scope}/${key}`;
+}
+
+/** Ledger lives beside its manifest, so bm25 and vectors stay independent. */
+function ledgerKey(manifestKey: string): string {
+  return `${manifestKey}:generations`;
 }
 
 function errorMessage(err: unknown): string {
@@ -145,7 +184,32 @@ export class IndexPersistence {
       vector = VectorIndex.deserialize(vecData);
     }
 
+    // Collect at boot, not only on save. A save-time sweep never runs when
+    // the process is being killed before it can save — which is exactly the
+    // condition that produces orphans, so the leak compounds fastest in the
+    // case the save-time sweep cannot reach. Boot is the one moment a
+    // crash-looping process reliably gets to.
+    await this.collectAtBoot();
+
     return { bm25, vector };
+  }
+
+  /**
+   * Delete every generation except the ones the live manifests name.
+   *
+   * Reads each manifest for its generation rather than assuming, so a boot
+   * that loaded a valid index never collects the shards that index came
+   * from. When a manifest is missing or unreadable the generation is
+   * undefined, and collectOrphanedGenerations then keeps nothing — correct,
+   * because with no live manifest every recorded generation is unreachable.
+   */
+  private async collectAtBoot(): Promise<void> {
+    for (const manifestKey of [BM25_MANIFEST_KEY, VECTOR_MANIFEST_KEY]) {
+      const manifest = await this.kv
+        .get<IndexShardManifest>(KV.bm25Index, manifestKey)
+        .catch(() => null);
+      await this.collectOrphanedGenerations(manifestKey, manifest?.generation);
+    }
   }
 
   stop(): void {
@@ -219,6 +283,13 @@ export class IndexPersistence {
       chunks.push(chunk);
     }
 
+    // Write-ahead: record this generation before a single shard lands, so a
+    // kill between here and the manifest publish still leaves something the
+    // boot collector can find. Deliberately not fatal — failing to record
+    // the intent is a leak risk, not a correctness one, and refusing to save
+    // the index because the ledger write failed would be the worse trade.
+    await this.recordGeneration(manifestKey, generation, shards);
+
     const writeResults = await Promise.allSettled(
       shards.map(async (shard, index) => {
         const chunk = chunks[index] ?? "";
@@ -291,6 +362,119 @@ export class IndexPersistence {
         await this.deleteShards([shard], "previous_generation_cleanup");
       }
     }
+
+    // Collect anything the manifest walk above cannot see: generations
+    // orphaned by a kill between shard write and manifest publish.
+    await this.collectOrphanedGenerations(manifestKey, generation);
+  }
+
+  /**
+   * Add a generation to the ledger before its shards are written.
+   *
+   * Never throws. A ledger write failure means a future leak, which a later
+   * collection cannot fix — but refusing to persist the index because
+   * bookkeeping failed trades a real loss for a hypothetical one.
+   */
+  private async recordGeneration(
+    manifestKey: string,
+    generation: string,
+    shards: IndexShardManifest["shards"],
+  ): Promise<void> {
+    try {
+      const ledger = await this.readLedger(manifestKey);
+      const entries = ledger.generations.filter(
+        (entry) => entry.generation !== generation,
+      );
+      entries.push({
+        generation,
+        shards: shards.map((shard) => ({ scope: shard.scope, key: shard.key })),
+      });
+      await this.kv.set<IndexGenerationLedger>(
+        KV.bm25Index,
+        ledgerKey(manifestKey),
+        // Newest kept, so an overflowing ledger drops the oldest entries —
+        // the ones most likely already collected by an earlier sweep.
+        { v: 1, generations: entries.slice(-MAX_LEDGER_ENTRIES) },
+      );
+    } catch (err) {
+      logger.warn("index persistence: failed to record generation in ledger", {
+        manifestKey,
+        generation,
+        error: errorMessage(err),
+      });
+    }
+  }
+
+  private async readLedger(manifestKey: string): Promise<IndexGenerationLedger> {
+    const raw = await this.kv
+      .get<IndexGenerationLedger>(KV.bm25Index, ledgerKey(manifestKey))
+      .catch(() => null);
+    if (!raw || raw.v !== 1 || !Array.isArray(raw.generations)) {
+      return { v: 1, generations: [] };
+    }
+    // Defensive: one malformed entry must not abort the sweep for the rest.
+    return {
+      v: 1,
+      generations: raw.generations.filter(
+        (entry) =>
+          entry &&
+          typeof entry.generation === "string" &&
+          Array.isArray(entry.shards),
+      ),
+    };
+  }
+
+  /**
+   * Delete every generation the ledger knows about except the live one, then
+   * shrink the ledger to match.
+   *
+   * `keepGeneration` is the generation the current manifest names. It is
+   * passed in rather than re-read so a collection running straight after a
+   * publish cannot race its own manifest write and delete what it just
+   * wrote.
+   */
+  async collectOrphanedGenerations(
+    manifestKey: string,
+    keepGeneration: string | undefined,
+  ): Promise<{ collected: number; shards: number }> {
+    let collected = 0;
+    let shards = 0;
+    try {
+      const ledger = await this.readLedger(manifestKey);
+      const survivors: IndexGenerationLedger["generations"] = [];
+
+      for (const entry of ledger.generations) {
+        if (keepGeneration && entry.generation === keepGeneration) {
+          survivors.push(entry);
+          continue;
+        }
+        for (const shard of entry.shards) {
+          await this.deleteKey(shard.scope, shard.key, "orphan_generation_gc");
+          shards++;
+        }
+        collected++;
+      }
+
+      if (collected > 0) {
+        await this.kv.set<IndexGenerationLedger>(
+          KV.bm25Index,
+          ledgerKey(manifestKey),
+          { v: 1, generations: survivors },
+        );
+        logger.info("index persistence: collected orphaned generations", {
+          manifestKey,
+          collected,
+          shards,
+          kept: keepGeneration ?? null,
+        });
+      }
+    } catch (err) {
+      logger.warn("index persistence: generation collection failed", {
+        manifestKey,
+        error: errorMessage(err),
+      });
+    }
+    return { collected, shards };
   }
 
   private async auditIndexPersistence(
