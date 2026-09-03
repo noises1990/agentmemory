@@ -2,6 +2,7 @@ import { SearchIndex } from "./search-index.js";
 import { VectorIndex } from "./vector-index.js";
 import type { StateKV } from "./kv.js";
 import { KV, generateId } from "./schema.js";
+import { IndexShardStore } from "./index-shard-store.js";
 import { logger } from "../logger.js";
 import { safeAudit } from "../functions/audit.js";
 
@@ -32,7 +33,14 @@ const DEFAULT_INDEX_SHARD_CHARS = 2_000_000;
 type IndexShardManifest = {
   v: 1;
   generation?: string;
-  shards: Array<{ scope: string; key: string; chars: number }>;
+  /**
+   * `path` present means the shard body lives on disk, not in the state
+   * store. Absent means a pre-file-store manifest, which still loads from KV
+   * — that is the whole migration: old manifests keep working, and the first
+   * save after upgrading writes files and lets the existing
+   * previous-generation cleanup drop the KV rows it replaced.
+   */
+  shards: Array<{ scope: string; key: string; chars: number; path?: string }>;
   chars: number;
 };
 
@@ -63,7 +71,10 @@ type IndexGenerationLedger = {
   v: 1;
   generations: Array<{
     generation: string;
-    shards: Array<{ scope: string; key: string }>;
+    // Carries `path` for the same reason the manifest does: the collector has
+    // to know whether a shard body is a file or a state-store row, and the
+    // ledger is the only record that survives a kill before the publish.
+    shards: Array<{ scope: string; key: string; path?: string }>;
   }>;
 };
 
@@ -73,6 +84,11 @@ const MAX_LEDGER_ENTRIES = 256;
 type IndexPersistenceOptions = {
   shardChars?: number;
   createGeneration?: () => string;
+  /**
+   * Directory for file-backed shards. Unset keeps shards in the state store,
+   * which is the pre-existing behaviour and what the older tests exercise.
+   */
+  dataDir?: string;
 };
 
 function shardChars(options: IndexPersistenceOptions): number {
@@ -105,7 +121,17 @@ function isValidShardDescriptor(
   shard: unknown,
 ): shard is IndexShardManifest["shards"][number] {
   if (!shard || typeof shard !== "object") return false;
-  const candidate = shard as { scope?: unknown; key?: unknown; chars?: unknown };
+  const candidate = shard as {
+    scope?: unknown;
+    key?: unknown;
+    chars?: unknown;
+    path?: unknown;
+  };
+  if (candidate.path !== undefined) {
+    if (typeof candidate.path !== "string" || candidate.path.length === 0) {
+      return false;
+    }
+  }
   return (
     typeof candidate.scope === "string" &&
     candidate.scope.length > 0 &&
@@ -122,12 +148,19 @@ export class IndexPersistence {
   private pendingSince = 0;
   private lastFailureLogAt = 0;
 
+  /** Set only when a dataDir is configured; null keeps shards in the store. */
+  private readonly shardStore: IndexShardStore | null;
+
   constructor(
     private kv: StateKV,
     private bm25: SearchIndex,
     private vector: VectorIndex | null,
     private options: IndexPersistenceOptions = {},
-  ) {}
+  ) {
+    this.shardStore = options.dataDir
+      ? new IndexShardStore(options.dataDir)
+      : null;
+  }
 
   scheduleSave(): void {
     const now = Date.now();
@@ -272,6 +305,10 @@ export class IndexPersistence {
     const shards: IndexShardManifest["shards"] = [];
     const chunks: string[] = [];
 
+    // `kind` separates bm25 from vector shards on disk, mirroring the scope
+    // prefix they already use in the store.
+    const kind = scopePrefix.endsWith(":vectors:") ? "vectors" : "bm25";
+
     for (let offset = 0; offset < serialized.length; offset += chunkChars) {
       const shardIndex = shards.length;
       const scope = `${scopePrefix}${generation}:${String(shardIndex).padStart(
@@ -279,7 +316,17 @@ export class IndexPersistence {
         "0",
       )}`;
       const chunk = serialized.slice(offset, offset + chunkChars);
-      shards.push({ scope, key: INDEX_SHARD_KEY, chars: chunk.length });
+      shards.push({
+        scope,
+        key: INDEX_SHARD_KEY,
+        chars: chunk.length,
+        // scope/key stay populated even for file shards so a manifest keeps
+        // one shape, and so the ledger and audit trail read the same either
+        // way. `path` is what decides where the body actually lives.
+        ...(this.shardStore
+          ? { path: this.shardStore.shardPath(kind, generation, shardIndex) }
+          : {}),
+      });
       chunks.push(chunk);
     }
 
@@ -293,7 +340,11 @@ export class IndexPersistence {
     const writeResults = await Promise.allSettled(
       shards.map(async (shard, index) => {
         const chunk = chunks[index] ?? "";
-        await this.kv.set(shard.scope, shard.key, chunk);
+        if (shard.path && this.shardStore) {
+          await this.shardStore.write(shard.path, chunk);
+        } else {
+          await this.kv.set(shard.scope, shard.key, chunk);
+        }
         await this.auditIndexPersistence("shard_write", [
           statePath(shard.scope, shard.key),
         ], {
@@ -387,7 +438,11 @@ export class IndexPersistence {
       );
       entries.push({
         generation,
-        shards: shards.map((shard) => ({ scope: shard.scope, key: shard.key })),
+        shards: shards.map((shard) => ({
+          scope: shard.scope,
+          key: shard.key,
+          ...(shard.path ? { path: shard.path } : {}),
+        })),
       });
       await this.kv.set<IndexGenerationLedger>(
         KV.bm25Index,
@@ -449,7 +504,7 @@ export class IndexPersistence {
           continue;
         }
         for (const shard of entry.shards) {
-          await this.deleteKey(shard.scope, shard.key, "orphan_generation_gc");
+          await this.deleteShard(shard, "orphan_generation_gc");
           shards++;
         }
         collected++;
@@ -518,8 +573,35 @@ export class IndexPersistence {
     reason: string,
   ): Promise<void> {
     for (const shard of shards) {
-      await this.deleteKey(shard.scope, shard.key, reason);
+      await this.deleteShard(shard, reason);
     }
+  }
+
+  /**
+   * Delete one shard from wherever its body actually lives.
+   *
+   * A shard written before the file store existed has no `path` and is
+   * removed from the state store; anything with a `path` is a file. Getting
+   * this wrong in either direction leaks: deleting only the KV row leaves the
+   * file, and deleting only the file leaves the row.
+   */
+  private async deleteShard(
+    shard: { scope: string; key: string; path?: string },
+    reason: string,
+  ): Promise<void> {
+    if (shard.path && this.shardStore) {
+      try {
+        await this.shardStore.remove(shard.path);
+      } catch (err) {
+        logger.warn("index persistence: failed to remove shard file", {
+          path: shard.path,
+          reason,
+          error: errorMessage(err),
+        });
+      }
+      return;
+    }
+    await this.deleteKey(shard.scope, shard.key, reason);
   }
 
   private async isManifestPublished(
@@ -634,7 +716,12 @@ export class IndexPersistence {
     const loadedShards = await Promise.all(
       manifest.shards.map(async (shard) => ({
         shard,
-        chunk: await this.kv.get<string>(shard.scope, shard.key).catch(() => null),
+        chunk:
+          shard.path && this.shardStore
+            ? await this.shardStore.read(shard.path).catch(() => null)
+            : await this.kv
+                .get<string>(shard.scope, shard.key)
+                .catch(() => null),
       })),
     );
     const chunks: string[] = [];

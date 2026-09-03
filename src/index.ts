@@ -423,7 +423,14 @@ async function main() {
 
   const healthMonitor = registerHealthMonitor(sdk, kv);
 
-  const indexPersistence = new IndexPersistence(kv, bm25Index, vectorIndex);
+  // dataDir turns on file-backed index shards. The serialized index is the
+  // largest thing this service writes and the engine loads a whole state
+  // scope at boot, so keeping the index in the store made engine memory scale
+  // with corpus size — see IndexShardStore for the measurements. Existing
+  // manifests keep loading from the store; the first save writes files.
+  const indexPersistence = new IndexPersistence(kv, bm25Index, vectorIndex, {
+    dataDir: config.dataDir,
+  });
   // Wire the persistence hook so delete paths can flush BM25/vector
   // index mutations to disk. Without this, an in-memory remove can be
   // lost across a hard process exit and the persisted snapshot
