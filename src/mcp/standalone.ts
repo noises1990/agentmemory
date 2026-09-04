@@ -353,6 +353,15 @@ async function handleProxyGeneric(
   return textResponse(result, true);
 }
 
+/**
+ * Recognises an upstream refusal in a proxy error string. Narrow on purpose:
+ * only a server that answered with an auth status blocks the fallback. A
+ * connection error still takes the documented local path.
+ */
+function isAuthFailure(detail: string): boolean {
+  return /\b(401|403)\b/.test(detail) || /unauthorized|forbidden/i.test(detail);
+}
+
 export async function handleToolCall(
   toolName: string,
   args: Record<string, unknown>,
@@ -397,6 +406,23 @@ export async function handleToolCall(
         invalidateHandle();
         throw new Error(
           `[@agentmemory/mcp] ${toolName} failed against the configured agentmemory server at ${handle.baseUrl}: ${detail}. Not falling back to the in-process InMemoryKV — it would silently discard writes and return empty reads.`,
+        );
+      }
+      // A localhost daemon that ANSWERED 401/403 is not the documented
+      // "no daemon yet" case the local path exists for -- it is a running
+      // store we failed to authenticate against. Answering from InMemoryKV
+      // there reports an auth fault as an empty memory, which is how a
+      // missing AGENTMEMORY_SECRET read as "no memories" rather than as a
+      // broken credential.
+      if (isAuthFailure(detail)) {
+        process.stderr.write(
+          `[@agentmemory/mcp] proxy call failed for ${toolName}: ${detail}; refusing the local KV path because the server rejected our credentials\n`,
+        );
+        invalidateHandle();
+        throw new Error(
+          `[@agentmemory/mcp] ${toolName} was refused by the agentmemory server at ${handle.baseUrl}: ${detail}. ` +
+            `The server is running; AGENTMEMORY_SECRET is missing or does not match it. ` +
+            `Not answering from the in-process InMemoryKV -- that would report an auth failure as an empty memory.`,
         );
       }
       process.stderr.write(
