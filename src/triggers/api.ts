@@ -70,6 +70,24 @@ function requireConfiguredSecret(
   };
 }
 
+/**
+ * The agent-scope fail-closed refusal is a caller/configuration problem, not a
+ * server fault: `AGENTMEMORY_AGENT_SCOPE=isolated` is on and no agent id was
+ * resolvable, so `mem::search` / `mem::smart-search` refuse to read cross-agent
+ * rows rather than widening the scope. Uncaught it reached the client as a bare
+ * 5xx with no body, which is what made the smart-search failure undiagnosable
+ * from the outside for a month.
+ *
+ * Deliberately narrow: it matches only that refusal and rethrows everything
+ * else. A broad catch here would turn real server faults into 400s and hide
+ * exactly the class of bug this endpoint already hid once.
+ */
+function agentScopeRefusalResponse(err: unknown): Response | null {
+  const message = err instanceof Error ? err.message : String(err);
+  if (!message.includes("AGENTMEMORY_AGENT_SCOPE=isolated is set")) return null;
+  return { status_code: 400, body: { error: message } };
+}
+
 function flagDisabledResponse(opts: {
   error: string;
   flag: string;
@@ -481,8 +499,14 @@ export function registerApiTriggers(
         token_budget: body.token_budget as number | undefined,
         agentId: bodyAgentId ?? queryAgentId,
       };
-      const result = await sdk.trigger({ function_id: "mem::search", payload: payload });
-      return { status_code: 200, body: result };
+      try {
+        const result = await sdk.trigger({ function_id: "mem::search", payload: payload });
+        return { status_code: 200, body: result };
+      } catch (err) {
+        const refusal = agentScopeRefusalResponse(err);
+        if (refusal) return refusal;
+        throw err;
+      }
     },
   );
   sdk.registerTrigger({
@@ -1185,6 +1209,19 @@ export function registerApiTriggers(
     ): Promise<Response> => {
       const authErr = checkAuth(req, secret);
       if (authErr) return authErr;
+      // #817 follow-up: `api::search` honours `?agentId=` as well as
+      // `body.agentId`, and the read-only gatekeeper forwards the query
+      // param. Reading only the body here dropped the caller's isolation
+      // filter silently: `?agentId=X` returned cross-agent rows, and under
+      // AGENTMEMORY_AGENT_SCOPE=isolated the missing id tripped
+      // mem::smart-search's fail-closed throw, surfacing as an opaque 5xx
+      // while plain search worked. Both endpoints must read it the same way.
+      const queryAgentId =
+        typeof (req as { query_params?: Record<string, string> })
+          .query_params?.["agentId"] === "string"
+          ? (req as { query_params: Record<string, string> })
+              .query_params["agentId"]
+          : undefined;
       if (
         !req.body?.query &&
         (!req.body?.expandIds || req.body.expandIds.length === 0)
@@ -1210,12 +1247,18 @@ export function registerApiTriggers(
         limit: req.body?.limit,
         project: req.body?.project,
         includeLessons: req.body?.includeLessons,
-        agentId: req.body?.agentId,
+        agentId: req.body?.agentId ?? queryAgentId,
         sessionId: req.body?.sessionId,
         source: req.body?.source ?? sourceFromHeader,
       };
-      const result = await sdk.trigger({ function_id: "mem::smart-search", payload });
-      return { status_code: 200, body: result };
+      try {
+        const result = await sdk.trigger({ function_id: "mem::smart-search", payload });
+        return { status_code: 200, body: result };
+      } catch (err) {
+        const refusal = agentScopeRefusalResponse(err);
+        if (refusal) return refusal;
+        throw err;
+      }
     },
   );
   sdk.registerTrigger({
