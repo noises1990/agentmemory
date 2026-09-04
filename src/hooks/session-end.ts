@@ -2,6 +2,10 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { loadAgentMemoryEnv } from "../utils/env-file.js";
+import {
+  reportCaptureFailure,
+  reportCaptureResponse,
+} from "./_capture-failure.js";
 
 // Hook processes inherit only the OS environment, never ~/.agentmemory/.env.
 // Load it before the module-scope process.env reads below, or a value set only
@@ -57,7 +61,10 @@ function fireAll(sessionId: string): Promise<unknown>[] {
       headers: authHeaders(),
       body: JSON.stringify({ sessionId }),
       signal: AbortSignal.timeout(30000),
-    }).catch(() => {}),
+    }).then(
+      (res) => reportCaptureResponse("session-end:session/end", `${REST_URL}/agentmemory/session/end`, res),
+      (err) => reportCaptureFailure("session-end:session/end", `${REST_URL}/agentmemory/session/end`, err),
+    ),
   ];
 
   if (process.env["CONSOLIDATION_ENABLED"] === "true") {
@@ -67,7 +74,10 @@ function fireAll(sessionId: string): Promise<unknown>[] {
         headers: authHeaders(),
         body: JSON.stringify({ olderThanDays: 0 }),
         signal: AbortSignal.timeout(60000),
-      }).catch(() => {}),
+      }).then(
+        (res) => reportCaptureResponse("session-end:crystals/auto", `${REST_URL}/agentmemory/crystals/auto`, res),
+        (err) => reportCaptureFailure("session-end:crystals/auto", `${REST_URL}/agentmemory/crystals/auto`, err),
+      ),
     );
 
     calls.push(
@@ -76,7 +86,10 @@ function fireAll(sessionId: string): Promise<unknown>[] {
         headers: authHeaders(),
         body: JSON.stringify({ tier: "all", force: true }),
         signal: AbortSignal.timeout(120000),
-      }).catch(() => {}),
+      }).then(
+        (res) => reportCaptureResponse("session-end:consolidate-pipeline", `${REST_URL}/agentmemory/consolidate-pipeline`, res),
+        (err) => reportCaptureFailure("session-end:consolidate-pipeline", `${REST_URL}/agentmemory/consolidate-pipeline`, err),
+      ),
     );
   }
 
@@ -86,7 +99,10 @@ function fireAll(sessionId: string): Promise<unknown>[] {
         method: "POST",
         headers: authHeaders(),
         signal: AbortSignal.timeout(30000),
-      }).catch(() => {}),
+      }).then(
+        (res) => reportCaptureResponse("session-end:claude-bridge/sync", `${REST_URL}/agentmemory/claude-bridge/sync`, res),
+        (err) => reportCaptureFailure("session-end:claude-bridge/sync", `${REST_URL}/agentmemory/claude-bridge/sync`, err),
+      ),
     );
   }
 

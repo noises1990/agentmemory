@@ -29,3 +29,6 @@ integrations/hermes/__pycache__/
 eval/reports/
 # LongMemEval download is 278MB; fetched on demand
 eval/data/longmemeval/
+
+# OMC writes state next to whatever directory a hook ran in.
+**/.omc/

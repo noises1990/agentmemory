@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { loadAgentMemoryEnv } from "../utils/env-file.js";
 import { resolveProject } from "./_project.js";
+import {
+  reportCaptureFailure,
+  reportCaptureResponse,
+} from "./_capture-failure.js";
 
 // Hook processes inherit only the OS environment, never ~/.agentmemory/.env.
 // Load it before the module-scope process.env reads below, or a value set only
@@ -53,7 +57,10 @@ async function main() {
       data: { prompt: data.prompt ?? data.userPrompt },
     }),
     signal: AbortSignal.timeout(3000),
-  }).catch(() => {});
+  }).then(
+    (res) => reportCaptureResponse("prompt-submit:observe", `${REST_URL}/agentmemory/observe`, res),
+    (err) => reportCaptureFailure("prompt-submit:observe", `${REST_URL}/agentmemory/observe`, err),
+  );
   setTimeout(() => process.exit(0), 500).unref();
 }
 

@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 import { loadAgentMemoryEnv } from "../utils/env-file.js";
 import { resolveProject } from "./_project.js";
+import {
+  reportCaptureFailure,
+  reportCaptureResponse,
+} from "./_capture-failure.js";
 
 // Hook processes inherit only the OS environment, never ~/.agentmemory/.env.
 // Load it before the module-scope process.env reads below, or a value set only
@@ -77,7 +81,10 @@ async function main() {
     fetch(url, {
       ...init,
       signal: AbortSignal.timeout(REGISTER_TIMEOUT_MS),
-    }).catch(() => {});
+    }).then(
+      (res) => reportCaptureResponse("session-start:register", url, res),
+      (err) => reportCaptureFailure("session-start:register", url, err),
+    );
     return;
   }
 

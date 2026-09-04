@@ -57,6 +57,10 @@ import {
   type RemoveOptions,
 } from "./cli/remove-plan.js";
 import { renderSplash } from "./cli/splash.js";
+import {
+  CAPTURE_FAILURE_FILE,
+  type CaptureFailureRecord,
+} from "./hooks/_capture-failure.js";
 import { isFirstRun, readPrefs, resetPrefs, writePrefs } from "./cli/preferences.js";
 import { runOnboarding } from "./cli/onboarding.js";
 import { setBootVerbose } from "./logger.js";
@@ -1568,6 +1572,80 @@ async function apiFetch<T = unknown>(base: string, path: string, timeoutMs = 500
   }
 }
 
+/**
+ * How long ago capture last recorded anything, and whether the hooks have been
+ * reporting failures.
+ *
+ * status used to print a session COUNT and nothing else. A count of 123 reads as
+ * healthy whether the last write was five minutes or a month ago, which is how a
+ * 27-day capture outage (2026-08-08 to 2026-09-04, every hook POSTing to a host
+ * that no longer resolved) stayed invisible on the one screen an operator checks.
+ */
+function captureRecencyLine(sessionList: Array<{ startedAt?: string }>): string {
+  const newest = newestCapture(sessionList);
+  const failure = readCaptureFailures();
+  if (!newest) return failure ? pc.red("never") : pc.yellow("never");
+
+  const ageMs = Date.now() - Date.parse(newest);
+  const stamp = `${newest.slice(0, 16).replace("T", " ")} (${formatAge(ageMs)} ago)`;
+  if (failure && Date.parse(failure.lastAt) >= Date.parse(newest)) return pc.red(stamp);
+  // A day without work is normal; a week without any is worth a second look.
+  if (ageMs > 7 * 86400000) return pc.red(stamp);
+  if (ageMs > 86400000) return pc.yellow(stamp);
+  return pc.green(stamp);
+}
+
+function newestCapture(sessionList: Array<{ startedAt?: string }>): string | undefined {
+  return sessionList
+    .map((s) => s?.startedAt)
+    .filter((t): t is string => typeof t === "string")
+    .sort()
+    .pop();
+}
+
+/**
+ * Detail lines for a capture failure, or [] when capture is healthy. Kept
+ * separate from the one-line stamp: the URL alone is usually longer than the
+ * status box is wide, and a wrapped diagnosis is a skipped diagnosis.
+ */
+function captureFailureLines(sessionList: Array<{ startedAt?: string }>): string[] {
+  const failure = readCaptureFailures();
+  if (!failure) return [];
+  const newest = newestCapture(sessionList);
+  // The marker is deliberately never cleared on success -- that would mean a
+  // synchronous write on every tool call -- so recovery is inferred here.
+  const recovered = newest ? Date.parse(failure.lastAt) < Date.parse(newest) : false;
+  const since = failure.firstAt.slice(0, 16).replace("T", " ");
+  const head = recovered
+    ? pc.dim(`  recovered — ${failure.count} failures from ${since}, none since`)
+    : pc.red(`  ${failure.count} failures since ${since} — capture is NOT reaching the server`);
+  const lines = [head];
+  if (!recovered) {
+    lines.push(pc.red(`  url:   ${failure.lastUrl}`));
+    lines.push(pc.red(`  error: ${failure.lastError}`));
+    lines.push(pc.dim(`  hooks: ${Object.keys(failure.byHook).join(", ")}`));
+  }
+  return lines;
+}
+function readCaptureFailures(): CaptureFailureRecord | null {
+  try {
+    const parsed = JSON.parse(
+      readFileSync(CAPTURE_FAILURE_FILE, "utf-8"),
+    ) as CaptureFailureRecord;
+    return parsed?.v === 1 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatAge(ms: number): string {
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${Math.max(mins, 0)}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 48) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
 async function runStatus() {
   const port = getRestPort();
   const base = getBaseUrl();
@@ -1622,6 +1700,8 @@ async function runStatus() {
     const lines = [
       `Health:       ${status === "healthy" ? pc.green("✓ healthy") : pc.yellow(status)}`,
       `Sessions:     ${sessions}`,
+      `Last capture: ${captureRecencyLine(sessionList)}`,
+      ...captureFailureLines(sessionList),
       `Observations: ${obsCount}`,
       `Memories:     ${memCount}`,
       `Graph:        ${nodes} nodes, ${edges} edges`,
