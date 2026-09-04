@@ -13,6 +13,8 @@ not have a secret sitting in a file.
 | `credstore.ps1` | Store/read/delete secrets in Windows Credential Manager |
 | `start-agentmemory.ps1` | Start the daemon with those secrets injected into its environment |
 | `register-autostart.ps1` | Register a per-user Scheduled Task so the daemon starts at logon |
+| `start-tunnel.ps1` | Publish the daemon as `https://mem.inspekter.app` over a Cloudflare Tunnel, token injected the same way |
+| `register-tunnel-autostart.ps1` | Per-user Scheduled Task so the tunnel comes up after the daemon at logon |
 
 They build on each other in that order: the launcher calls `credstore.ps1`,
 and the task registration calls the launcher. Keep them in the same
@@ -69,6 +71,38 @@ password is stored anywhere.
   — which surfaces as "address already in use" with no obvious cause.
 - Ports derive from `III_REST_PORT` (default 3111), matching `config.ts`:
   REST, REST+1 streams, REST+2 viewer, REST+46023 engine.
+
+## Publishing the daemon to the estate
+
+The workspace gatekeeper reaches the daemon at `https://mem.inspekter.app`, a
+Cloudflare Access-protected hostname that fronts a `cloudflared` tunnel. Since
+2026-09-05 that tunnel runs on this machine (`workhorse-agentmemory`, remotely
+managed -- its ingress `mem.inspekter.app -> http://127.0.0.1:3111` lives in the
+Cloudflare dashboard, not in a local `config.yml`).
+
+```powershell
+# 1. Install cloudflared once (official package, no download step in the scripts).
+winget install --id Cloudflare.cloudflared -e
+
+# 2. Store the tunnel token. Same rule as the API token: masked prompt,
+#    never an argument, never a file.
+.\credstore.ps1 -Set -Name agentmemory/TUNNEL_TOKEN
+
+# 3. Start the tunnel. Ready means cloudflared's own /ready answers 200,
+#    which it does only while it holds a live connection to Cloudflare.
+.\start-tunnel.ps1
+
+# 4. Optional: at logon, 75s after logon so the daemon (45s) is listening first.
+.egister-tunnel-autostart.ps1
+```
+
+The token reaches `cloudflared` only through the child process's `TUNNEL_TOKEN`
+environment variable and is cleared from the launcher the moment the child exists.
+Logs go to `~/.agentmemory/tunnel.err.log` (cloudflared logs to stderr).
+
+While this machine is asleep or logged out, the estate has no memory upstream --
+the gatekeeper answers `502 upstream-error`, loudly. That is the accepted trade of
+hosting it on a workstation, until memory moves to a Cloudflare-native store.
 
 ## Checking and removing
 
