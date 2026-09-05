@@ -7,24 +7,44 @@
 # hours, and the logon task that should have mattered was disabled. A
 # process that exists is not a service that works; only the port is.
 #
-# Both launchers are idempotent in this mode: start-agentmemory -IfDown
-# restarts only when :3111 gives no HTTP answer at all, and start-tunnel
-# returns immediately when cloudflared's /ready is 200.
+# This script decides from the ports, never from a launcher's printed
+# output: Write-Host does not travel through 2>&1 in Windows PowerShell,
+# and the first version logged a "tunnel: STARTED" for a tunnel that was
+# already up because it parsed an empty string.
 
 $ErrorActionPreference = 'Continue'
-$S = $PSScriptRoot
-$stamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
-$log = Join-Path (Join-Path $env:USERPROFILE '.agentmemory') 'watchdog.log'
+$S   = $PSScriptRoot
+$AM  = Join-Path $env:USERPROFILE '.agentmemory'
+$log = Join-Path $AM 'watchdog.log'
+$RestPort    = if ($env:III_REST_PORT) { [int]$env:III_REST_PORT } else { 3111 }
+$MetricsPort = 20241
 
-function Note([string]$line) { Add-Content -Path $log -Value "$stamp $line" }
+function Note([string]$line) { Add-Content -Path $log -Value "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') $line" }
 
-$d = & "$S\start-agentmemory.ps1" -IfDown 2>&1 | Out-String
-if ($d -match 'restarting') { Note "daemon: RESTARTED ($($d.Trim() -replace '\s+',' '))" }
+# Any HTTP status from our own loopback port -- 401 included -- is a live listener.
+function Test-DaemonAlive {
+  try { Invoke-WebRequest -Uri "http://127.0.0.1:$RestPort/agentmemory/livez" -UseBasicParsing -TimeoutSec 5 | Out-Null; return $true }
+  catch { return [bool]$_.Exception.Response }
+}
+# cloudflared's /ready is 200 only while it holds a connection to Cloudflare.
+function Test-TunnelReady {
+  try { return ((Invoke-WebRequest -Uri "http://127.0.0.1:$MetricsPort/ready" -UseBasicParsing -TimeoutSec 3).StatusCode -eq 200) }
+  catch { return $false }
+}
 
-$t = & "$S\start-tunnel.ps1" 2>&1 | Out-String
-if ($t -notmatch 'already connected') { Note "tunnel: STARTED ($($t.Trim() -replace '\s+',' '))" }
+if (-not (Test-DaemonAlive)) {
+  Note "daemon: :$RestPort silent -- restarting"
+  & "$S\start-agentmemory.ps1" *> $null
+  Note "daemon: after restart alive=$(Test-DaemonAlive)"
+}
 
-# Keep the log from growing without bound: only actions are logged, but cap it anyway.
+if (-not (Test-TunnelReady)) {
+  Note "tunnel: /ready not 200 -- starting"
+  & "$S\start-tunnel.ps1" *> $null
+  Note "tunnel: after start ready=$(Test-TunnelReady)"
+}
+
+# Only actions are logged, but cap the file anyway.
 if ((Test-Path $log) -and ((Get-Item $log).Length -gt 512KB)) {
   Get-Content $log -Tail 500 | Set-Content $log
 }
