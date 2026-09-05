@@ -12,11 +12,17 @@
 #   .\start-agentmemory.ps1              # start detached, log to ~/.agentmemory
 #   .\start-agentmemory.ps1 -Foreground  # run attached (for debugging)
 #   .\start-agentmemory.ps1 -Stop        # stop engine + worker, incl. orphans
+#   .\start-agentmemory.ps1 -IfDown      # restart only if :3111 is silent (watchdog)
 
 [CmdletBinding()]
 param(
   [switch]$Foreground,
-  [switch]$Stop
+  [switch]$Stop,
+  # Watchdog mode: restart ONLY if nothing answers on the REST port. Any HTTP
+  # status from 127.0.0.1 -- including 401 -- proves the listener is alive; a
+  # wedged daemon (process up, port silent, seen 2026-09-05) is the only case
+  # this restarts. Idempotent, so a scheduled task can call it every few minutes.
+  [switch]$IfDown
 )
 
 $ErrorActionPreference = 'Stop'
@@ -49,7 +55,7 @@ function Stop-AgentMemory {
   Start-Sleep -Seconds 1
 
   # Match BOTH worker entry points. The published package starts its worker
-  # from dist/index.mjs, but a fork run from source starts it from
+  # from dist/index.mjs, but this fork runs from source and starts it from
   # dist/cli.mjs -- the bare CLI *is* a worker ("(default) Start agentmemory
   # worker"). Matching only index.mjs meant this never reaped a fork worker:
   # the sweep reported success, the old worker kept running, and the new one
@@ -105,42 +111,83 @@ if ($loaded.Count -gt 0) {
 # reach a server. The server must never read it, and inheriting it from the
 # ambient environment is not harmless.
 #
-# Measured 2026-08-29. A User-scoped AGENTMEMORY_URL pointed at that box's
-# Tailscale name. getBaseUrl() returned it, and isEngineRunning() treated ANY
-# HTTP response as proof of a live engine -- Tailscale answered 404, which is
-# a response. The CLI concluded an engine was already up, skipped
+# Measured here on 2026-08-29. A User-scoped AGENTMEMORY_URL pointed at this
+# box's Tailscale name. getBaseUrl() returned it, and isEngineRunning() treats
+# ANY HTTP response as proof of a live engine -- Tailscale answered 404, which
+# is a response. So the CLI concluded an engine was already up, skipped
 # startEngine(), and the worker sat in a WebSocket reconnect loop against a
-# port nothing was listening on. The daemon was down for three weeks while
-# every start printed success.
+# port nothing was listening on. The daemon had been down since 8 August and
+# every start "succeeded" in the terminal while never binding 3111.
 #
 # Cleared for THIS process only, which the engine and worker inherit. The
 # user-level variable is untouched, so remote clients keep resolving.
 #
-# isEngineRunning() now probes loopback rather than getBaseUrl(), so this is
-# no longer load-bearing. It stays as defence in depth, and because printing
-# the ignored value is what makes an ambient override visible at all.
+# This is the launcher-side half. The real fix is upstream: isEngineRunning()
+# must not count a 404 as a live engine.
 if ($env:AGENTMEMORY_URL) {
   Write-Host "Ignoring inherited AGENTMEMORY_URL=$($env:AGENTMEMORY_URL) for the server process (client setting)." -ForegroundColor DarkYellow
   [Environment]::SetEnvironmentVariable('AGENTMEMORY_URL', $null)
 }
 
+if ($IfDown) {
+  $alive = $false
+  try {
+    Invoke-WebRequest -Uri "http://127.0.0.1:$RestPort/agentmemory/livez" -UseBasicParsing -TimeoutSec 5 | Out-Null
+    $alive = $true
+  } catch {
+    # A response with any status is a live listener. Only no response at all is "down".
+    if ($_.Exception.Response) { $alive = $true }
+  }
+  if ($alive) { Write-Host "agentmemory answers on :$RestPort -- nothing to do."; return }
+  Write-Warning "agentmemory is NOT answering on :$RestPort -- restarting (watchdog)."
+}
+
 Stop-AgentMemory
 
+# Run the FORK, not the globally-installed @agentmemory/agentmemory.
+#
+# `agentmemory.cmd` resolves to ~/AppData/Roaming/npm/node_modules/@agentmemory,
+# which is the published upstream package. Because the bare CLI *is* a worker
+# ("(default) Start agentmemory worker"), starting it registered upstream code
+# against the engine alongside the fork worker that iii-exec spawns -- two
+# workers, same name, all 268 function ids each. The engine load-balances, so
+# roughly half of every mem::summarize and mem::compress call was served by
+# upstream code with none of this fork's fixes. That is invisible from the
+# outside: same function names, same responses, intermittently the old
+# behaviour.
+#
+# Heap flags mirror the iii-exec line in iii-config.yaml so both entry points
+# get the same ceiling.
+$ForkCli = 'X:/Projects/agentmemory/dist/cli.mjs'
+$NodeArgs = @('--max-old-space-size=8192', '--max-semi-space-size=64', $ForkCli)
+
+if (-not (Test-Path $ForkCli)) { throw "Fork CLI not found at $ForkCli -- run 'npm run build' in the fork." }
+
 if ($Foreground) {
-  & agentmemory --verbose
+  & node @NodeArgs --verbose
 } else {
   $out = Join-Path $AM 'daemon.log'
   $err = Join-Path $AM 'daemon.err.log'
-  $proc = Start-Process -FilePath 'agentmemory.cmd' `
+  $proc = Start-Process -FilePath 'node' -ArgumentList $NodeArgs `
     -WorkingDirectory $env:USERPROFILE `
     -WindowStyle Hidden -PassThru `
     -RedirectStandardOutput $out -RedirectStandardError $err
   Write-Host "agentmemory starting (pid $($proc.Id)); logs: $out" -ForegroundColor Green
 
+  # 127.0.0.1, not localhost.
+  #
+  # The REST server binds IPv4 only (Get-NetTCPConnection shows
+  # LocalAddress 127.0.0.1), but .NET resolves "localhost" to ::1 first and
+  # only falls back to IPv4 after ~2.05s. With -TimeoutSec 2 that fallback
+  # never lands, so every one of the 60 attempts failed by ~50ms and the
+  # probe reported "Not reachable after 60s" against a daemon that was
+  # answering in 39ms. The warning was unconditional, which made a healthy
+  # start look like a failed one. Measured: localhost/2s -> timeout,
+  # localhost/10s -> 200 in 2054ms, 127.0.0.1/2s -> 200 in 39ms.
   for ($i = 0; $i -lt 60; $i++) {
     Start-Sleep -Seconds 1
     try {
-      Invoke-WebRequest -Uri "http://localhost:$RestPort/agentmemory/livez" -UseBasicParsing -TimeoutSec 2 | Out-Null
+      Invoke-WebRequest -Uri "http://127.0.0.1:$RestPort/agentmemory/livez" -UseBasicParsing -TimeoutSec 5 | Out-Null
       Write-Host "Ready after ${i}s: http://localhost:$RestPort" -ForegroundColor Green
       return
     } catch { }

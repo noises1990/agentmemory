@@ -15,6 +15,8 @@ not have a secret sitting in a file.
 | `register-autostart.ps1` | Register a per-user Scheduled Task so the daemon starts at logon |
 | `start-tunnel.ps1` | Publish the daemon as `https://mem.inspekter.app` over a Cloudflare Tunnel, token injected the same way |
 | `register-tunnel-autostart.ps1` | Per-user Scheduled Task so the tunnel comes up after the daemon at logon |
+| `watchdog.ps1` | Every few minutes: restart the daemon only if `:3111` is silent; start the tunnel if its `/ready` is not 200 |
+| `register-watchdog.ps1` | Per-user task for `watchdog.ps1` -- 5-minute repetition plus a logon trigger |
 
 They build on each other in that order: the launcher calls `credstore.ps1`,
 and the task registration calls the launcher. Keep them in the same
@@ -103,6 +105,26 @@ Logs go to `~/.agentmemory/tunnel.err.log` (cloudflared logs to stderr).
 While this machine is asleep or logged out, the estate has no memory upstream --
 the gatekeeper answers `502 upstream-error`, loudly. That is the accepted trade of
 hosting it on a workstation, until memory moves to a Cloudflare-native store.
+
+## Keeping it up
+
+A process that exists is not a service that works; only the port is. On 2026-09-05 the
+daemon's `node` and `iii` processes were alive while nothing answered on `:3111`, and the
+tunnel published that dead origin to the whole estate as 502 for hours. So:
+
+```powershell
+.\start-agentmemory.ps1 -IfDown   # restart ONLY when :3111 gives no HTTP answer at all
+.egister-watchdog.ps1           # run watchdog.ps1 every 5 min and 45s after logon
+.egister-watchdog.ps1 -Status
+```
+
+Any HTTP status from our own `127.0.0.1:3111` -- a 401 included -- counts as alive; a
+wedged daemon is the only thing `-IfDown` restarts. The tunnel launcher is already
+idempotent. Actions, and only actions, are appended to `~/.agentmemory/watchdog.log`.
+
+The watchdog supersedes the plain logon task for the daemon: a task registered under
+another security context cannot be enabled or replaced from a normal shell, and one such
+was found sitting disabled since 2026-08-03.
 
 ## Checking and removing
 
