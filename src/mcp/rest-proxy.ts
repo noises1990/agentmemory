@@ -1,3 +1,8 @@
+import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+import { homedir } from "node:os";
+
 const DEFAULT_URL = "http://localhost:3111";
 const DEFAULT_HEALTH_PROBE_TIMEOUT_MS = 2_000;
 const CALL_TIMEOUT_MS = 15_000;
@@ -87,8 +92,74 @@ export function isConfiguredRemote(): boolean {
   return host !== "localhost" && host !== "127.0.0.1" && host !== "::1";
 }
 
+/**
+ * Reads the daemon bearer from Windows Credential Manager when the environment
+ * does not carry it.
+ *
+ * Why: an MCP host does not hand a stdio server its own environment. Claude Code
+ * passes only the server's configured `env` plus a short default set, and strips
+ * anything whose name looks like a credential (TOKEN, SECRET, KEY, AUTH) -- so
+ * AGENTMEMORY_SECRET can never arrive by inheritance, and `${VAR}` expansion in
+ * the config only works in project-scoped .mcp.json. Every launcher on this
+ * platform already treats the vault as the authoritative copy (credstore.ps1),
+ * so the shim reads the same entry. The value crosses one pipe into memory and
+ * is never an argument or a file.
+ *
+ * Deliberately narrow: only when the variable is absent, only on win32, only
+ * this one entry. A vault miss is reported once on stderr and then the daemon's
+ * 401 stays as loud as it is today -- nothing here turns a missing credential
+ * into a quiet empty answer.
+ */
+const VAULT_ENTRY = "agentmemory-api-token";
+let vaultSecret: string | null | undefined;
+let vaultReader: (() => string | null) | null = null;
+
+/** Tests swap the PowerShell read for a stub. */
+export function setVaultReaderForTests(reader: (() => string | null) | null): void {
+  vaultReader = reader;
+  vaultSecret = undefined;
+}
+
+function readVaultSecret(): string | null {
+  if (vaultSecret !== undefined) return vaultSecret;
+  if (vaultReader) {
+    vaultSecret = vaultReader();
+    return vaultSecret;
+  }
+  if (process.platform !== "win32") {
+    vaultSecret = null;
+    return null;
+  }
+  const script = join(homedir(), ".agentmemory", "scripts", "credstore.ps1");
+  if (!existsSync(script)) {
+    vaultSecret = null;
+    return null;
+  }
+  const result = spawnSync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", script, "-Get", "-Name", VAULT_ENTRY],
+    { encoding: "utf8", windowsHide: true, timeout: 15_000 },
+  );
+  const lines = result.status === 0 ? result.stdout.trim().split(/\r?\n/) : [];
+  const value = (lines[lines.length - 1] ?? "").trim();
+  if (!value) {
+    process.stderr.write(
+      `[@agentmemory/mcp] AGENTMEMORY_SECRET is not in the environment and the vault entry ` +
+        `'${VAULT_ENTRY}' could not be read (${result.status === 0 ? "empty" : `credstore exit ${result.status}`}); ` +
+        `requests will carry no bearer and the server will refuse them.\n`,
+    );
+    vaultSecret = null;
+    return null;
+  }
+  process.stderr.write(
+    `[@agentmemory/mcp] AGENTMEMORY_SECRET not in the environment; using Windows Credential Manager entry '${VAULT_ENTRY}'\n`,
+  );
+  vaultSecret = value;
+  return value;
+}
+
 function authHeader(): Record<string, string> {
-  const secret = resolveEnvOrEmpty("AGENTMEMORY_SECRET");
+  const secret = resolveEnvOrEmpty("AGENTMEMORY_SECRET") || readVaultSecret() || "";
   return secret ? { authorization: `Bearer ${secret}` } : {};
 }
 
