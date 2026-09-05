@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -42,6 +42,21 @@ export interface CaptureFailureRecord {
   lastUrl: string;
   /** Message only. Never a response body: it can carry a bearer token. */
   lastError: string;
+  /**
+   * Which client's environment the failing hook ran in, as the NAMES of its
+   * marker variables (CLAUDE_*, CODEX_*, DEVIN_*) -- never values. Several
+   * agents on one machine run the same hook scripts, and a 401 from a client
+   * that still holds a rotated bearer looks identical to one from the client
+   * you are sitting in. This is what tells them apart.
+   */
+  lastClient: string;
+}
+
+function clientHint(): string {
+  const names = Object.keys(process.env)
+    .filter((k) => /^(CLAUDE|CODEX|DEVIN|CURSOR|COPILOT)[_A-Z]*/.test(k))
+    .sort();
+  return names.length ? names.join(",") : "none";
 }
 
 function readRecord(path: string): CaptureFailureRecord | null {
@@ -92,16 +107,77 @@ export function reportCaptureFailure(
 export function reportCaptureResponse(
   hookType: string,
   url: string,
-  res: { ok: boolean; status: number; statusText: string },
+  res: { ok: boolean; status: number; statusText: string; text?: () => Promise<string> },
   file: string = CAPTURE_FAILURE_FILE,
 ): void {
   if (res.ok) return;
-  reportCaptureFailureImpl(
-    hookType,
-    url,
-    new Error(`HTTP ${res.status} ${res.statusText || ""}`.trim()),
-    file,
-  );
+  const head = `HTTP ${res.status} ${res.statusText || ""}`.trim();
+  // For a 4xx the daemon's error JSON names the rejected field ("project is
+  // required"), and that is the whole diagnosis -- a 400 with no reason cost a
+  // day on 2026-09-05. Only the `error` string is kept, capped, and only for
+  // 4xx: it is the server's own message about our request, never an echo of it.
+  if (res.status >= 400 && res.status < 500 && typeof res.text === "function") {
+    res.text().then(
+      (body) => {
+        let reason = "";
+        try { reason = String((JSON.parse(body) as { error?: unknown }).error ?? ""); } catch { /* not JSON */ }
+        reportCaptureFailureImpl(hookType, url, new Error(reason ? `${head}: ${reason.slice(0, 120)}` : head), file);
+      },
+      () => reportCaptureFailureImpl(hookType, url, new Error(head), file),
+    );
+    return;
+  }
+  reportCaptureFailureImpl(hookType, url, new Error(head), file);
+}
+
+export const CAPTURE_SKIP_FILE = join(homedir(), ".agentmemory", "capture-skips.log");
+const CAPTURE_SKIP_CAP_BYTES = 64 * 1024;
+
+/**
+ * Record a hook that decided NOT to post -- an unparsable payload, or a
+ * payload it classifies as an SDK child context. Those returns are by design,
+ * but from the outside they are indistinguishable from a hook that never ran:
+ * no observation, no failure marker, nothing. On 2026-09-05 a whole session
+ * captured nothing while the daemon was healthy and the marker was quiet,
+ * and there was no way to tell which return it was without patching the
+ * bundle by hand.
+ *
+ * Bounded: appends until the file reaches CAPTURE_SKIP_CAP_BYTES, then stops.
+ * The value of the log is the first few lines after a change, not a stream.
+ * Payload contents are never written -- only key names and the fields that
+ * decide the skip.
+ */
+export function reportCaptureSkip(
+  hookType: string,
+  reason: string,
+  detail: Record<string, string | number | boolean | null>,
+  file: string = CAPTURE_SKIP_FILE,
+): void {
+  try {
+    mkdirSync(join(file, ".."), { recursive: true });
+    let size = 0;
+    try { size = statSync(file).size; } catch { /* absent: first line */ }
+    if (size >= CAPTURE_SKIP_CAP_BYTES) return;
+    writeFileSync(
+      file,
+      JSON.stringify({ ts: new Date().toISOString(), hook: hookType, reason, ...detail }) + "\n",
+      { flag: "a" },
+    );
+  } catch {
+    // Diagnostic only; a hook must never fail because its breadcrumb could not be written.
+  }
+}
+
+/** The fields that decide an SDK-child skip, as names and flags -- never payload contents. */
+export function describeHookPayload(data: unknown): Record<string, string | number | boolean | null> {
+  const obj = data && typeof data === "object" ? (data as Record<string, unknown>) : null;
+  return {
+    keys: obj ? Object.keys(obj).sort().join(",") : "",
+    entrypoint: obj && typeof obj["entrypoint"] === "string" ? (obj["entrypoint"] as string) : null,
+    sdkChildEnv: process.env["AGENTMEMORY_SDK_CHILD"] ?? null,
+    sessionPrefix: obj ? String(obj["session_id"] ?? obj["sessionId"] ?? "").slice(0, 8) : "",
+    client: Object.keys(process.env).filter((k) => /^(CLAUDE|CODEX|DEVIN)[_A-Z]*/.test(k)).sort().join(","),
+  };
 }
 
 function reportCaptureFailureImpl(
@@ -121,6 +197,7 @@ function reportCaptureFailureImpl(
       byHook: { ...(prev?.byHook ?? {}) },
       lastUrl: url,
       lastError: err instanceof Error ? err.message : String(err),
+      lastClient: clientHint(),
     };
     record.byHook[hookType] = (record.byHook[hookType] ?? 0) + 1;
 

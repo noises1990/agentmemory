@@ -2,8 +2,10 @@
 import { loadAgentMemoryEnv } from "../utils/env-file.js";
 import { resolveProject } from "./_project.js";
 import {
+  describeHookPayload,
   reportCaptureFailure,
   reportCaptureResponse,
+  reportCaptureSkip,
 } from "./_capture-failure.js";
 
 // Hook processes inherit only the OS environment, never ~/.agentmemory/.env.
@@ -37,11 +39,18 @@ async function main() {
   try {
     data = JSON.parse(input);
   } catch {
+    reportCaptureSkip("post-tool-use", "unparsable-stdin", { bytes: input.length });
     return;
   }
 
-  if (!data || typeof data !== "object") return;
-  if (isSdkChildContext(data)) return;
+  if (!data || typeof data !== "object") {
+    reportCaptureSkip("post-tool-use", "not-an-object", {});
+    return;
+  }
+  if (isSdkChildContext(data)) {
+    reportCaptureSkip("post-tool-use", "sdk-child", describeHookPayload(data));
+    return;
+  }
 
   const sessionId = ((data.session_id || data.sessionId) as string) || "unknown";
   const toolName = data.tool_name ?? data.toolName;

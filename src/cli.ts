@@ -1624,6 +1624,7 @@ function captureFailureLines(sessionList: Array<{ startedAt?: string }>): string
     lines.push(pc.red(`  url:   ${failure.lastUrl}`));
     lines.push(pc.red(`  error: ${failure.lastError}`));
     lines.push(pc.dim(`  hooks: ${Object.keys(failure.byHook).join(", ")}`));
+    if (failure.lastClient) lines.push(pc.dim(`  client env: ${failure.lastClient}`));
   }
   return lines;
 }

@@ -108,7 +108,21 @@ function resolveProject(cwd) {
 		const root = findRepoRoot(dir);
 		if (root) return basename(root);
 	} catch {}
-	return basename(dir);
+	return basename(dir) || rootProjectName(dir);
+}
+/**
+* A drive root (`C:\`) or `/` has no basename, and an empty project makes the
+* daemon refuse the observation with a 400 -- correctly, since a nameless
+* project would be unrecoverable. Claude Code's desktop app opens sessions at
+* `C:\` by default, so on 2026-09-05 every hook of such a session was refused
+* while the same session captured fine whenever its working directory had
+* wandered into a real folder. The name is the truth about where the session
+* ran, not a placeholder: `drive-c` for `C:\`, `root` for `/`.
+*/
+function rootProjectName(dir) {
+	const drive = /^([A-Za-z]):[\\/]*$/.exec(dir.trim());
+	if (drive) return `drive-${drive[1].toLowerCase()}`;
+	return "root";
 }
 //#endregion
 //#region src/hooks/pre-compact.ts

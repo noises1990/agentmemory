@@ -94,6 +94,10 @@ function loadAgentMemoryEnv(path = ENV_FILE) {
 * as resolved when capture has since succeeded.
 */
 const CAPTURE_FAILURE_FILE = join(homedir(), ".agentmemory", "capture-failures.json");
+function clientHint() {
+	const names = Object.keys(process.env).filter((k) => /^(CLAUDE|CODEX|DEVIN|CURSOR|COPILOT)[_A-Z]*/.test(k)).sort();
+	return names.length ? names.join(",") : "none";
+}
 function readRecord(path) {
 	try {
 		const parsed = JSON.parse(readFileSync(path, "utf-8"));
@@ -131,8 +135,20 @@ function reportCaptureFailure(hookType, url, err, file = CAPTURE_FAILURE_FILE) {
 */
 function reportCaptureResponse(hookType, url, res, file = CAPTURE_FAILURE_FILE) {
 	if (res.ok) return;
-	reportCaptureFailureImpl(hookType, url, new Error(`HTTP ${res.status} ${res.statusText || ""}`.trim()), file);
+	const head = `HTTP ${res.status} ${res.statusText || ""}`.trim();
+	if (res.status >= 400 && res.status < 500 && typeof res.text === "function") {
+		res.text().then((body) => {
+			let reason = "";
+			try {
+				reason = String(JSON.parse(body).error ?? "");
+			} catch {}
+			reportCaptureFailureImpl(hookType, url, new Error(reason ? `${head}: ${reason.slice(0, 120)}` : head), file);
+		}, () => reportCaptureFailureImpl(hookType, url, new Error(head), file));
+		return;
+	}
+	reportCaptureFailureImpl(hookType, url, new Error(head), file);
 }
+join(homedir(), ".agentmemory", "capture-skips.log");
 function reportCaptureFailureImpl(hookType, url, err, file) {
 	try {
 		const now = (/* @__PURE__ */ new Date()).toISOString();
@@ -144,7 +160,8 @@ function reportCaptureFailureImpl(hookType, url, err, file) {
 			count: (prev?.count ?? 0) + 1,
 			byHook: { ...prev?.byHook ?? {} },
 			lastUrl: url,
-			lastError: err instanceof Error ? err.message : String(err)
+			lastError: err instanceof Error ? err.message : String(err),
+			lastClient: clientHint()
 		};
 		record.byHook[hookType] = (record.byHook[hookType] ?? 0) + 1;
 		mkdirSync(join(file, ".."), { recursive: true });
