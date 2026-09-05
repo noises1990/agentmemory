@@ -72,12 +72,18 @@ $CRED_TYPE_GENERIC = 1
 $CRED_PERSIST_LOCAL_MACHINE = 2
 
 function Set-Secret([string]$Target) {
-  $secure = Read-Host -AsSecureString "Enter value for '$Target' (input hidden)"
-  $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-  try {
-    $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-  } finally {
-    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+  if ([Console]::IsInputRedirected) {
+    # Automation: the value arrives on stdin (`tool-that-prints-a-token | credstore.ps1 -Set ...`),
+    # never as an argument. The first non-empty line is the value; a trailing newline is not.
+    $plain = [Console]::In.ReadToEnd() -split "`r?`n" | Where-Object { $_ -ne '' } | Select-Object -First 1
+  } else {
+    $secure = Read-Host -AsSecureString "Enter value for '$Target' (input hidden)"
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+      $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    } finally {
+      [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
   }
 
   if ([string]::IsNullOrWhiteSpace($plain)) { throw "Empty value -- nothing stored." }
